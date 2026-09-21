@@ -1,0 +1,26 @@
+{
+  "name": "jev-personality-playground",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server/web.mjs",
+    "build": "vite build",
+    "start": "NODE_ENV=production node server/web.mjs",
+    "personality": "node --env-file=.env src/cli.mjs",
+    "demo": "node --env-file=.env src/cli.mjs --sample",
+    "test": "node --test",
+    "test:api": "node --env-file=.env src/api-smoke.mjs",
+    "test:auto-api": "node --env-file=.env scripts/auto-api-smoke.mjs"
+  },
+  "dependencies": {
+    "@typesafe-ai/sdk": "0.6.0",
+    "express": "5.2.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "6.1.1",
+    "vite": "8.3.0"
+  }
+}
