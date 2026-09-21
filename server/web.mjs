@@ -51,5 +51,5 @@ if (process.env.NODE_ENV === "production") {
 }
 
 app.listen(port, "127.0.0.1", () => {
-  console.log(`Jev Pop Lab: http://127.0.0.1:${port}`);
+  console.log(`Jev Playground: http://127.0.0.1:${port}`);
 });

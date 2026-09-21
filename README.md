@@ -1,8 +1,18 @@
-# Jev Pop Lab
+# Jev Playground
 
-一个移动端优先的 Jev 自动跑测站：选择题库后，Jev 会自动逐题选择，题库原算法负责计算最终结果，并把每题概率与运行记录保存在当前浏览器中。
+一个「只会做选择的 AI 实验室」：Jev 不生成文字，只输出选择、分数与概率。这里把它的概率判断做成一系列小实验。做题室已开放，游戏室企划中。
 
-## 功能
+由 [Maigic](https://maigic.top) 出品 · GitHub：[@Maigic-AI](https://github.com/Maigic-AI)
+
+## 站点结构
+
+- `/` 主页：介绍 Jev Playground 的想法、Choice / Score / Noul 三种问题类型与各房间入口
+- `/quiz` 做题室：选择题库后，Jev 自动逐题选择，题库原算法负责计算最终结果，并把每题概率与运行记录保存在当前浏览器中
+- `/game` 游戏室：Jev 当游戏大脑的架构说明与排队中的实验企划（性格赛车、狼人杀、德州扑克）
+
+前端为 React SPA，使用 History API 路由（无路由依赖），生产环境由 Express 提供 SPA fallback。
+
+## 做题室功能
 
 - SBTI：30 题、27 种娱乐性人格
 - 16 型人格：40 题或 93 题，中英双语，可分别保存结果观察语言差异
@@ -51,4 +61,8 @@ npm run personality
 npm run demo
 ```
 
-题库来源和许可证见 [THIRD_PARTY.md](./THIRD_PARTY.md)。测试结果仅供娱乐，不是心理测量、医学诊断、招聘建议或政治身份判断。
+## 许可证
+
+本项目代码采用 [MIT License](./LICENSE) 开源。第三方题库的来源与许可证单独见 [THIRD_PARTY.md](./THIRD_PARTY.md)。
+
+测试结果仅供娱乐，不是心理测量、医学诊断、招聘建议或政治身份判断。

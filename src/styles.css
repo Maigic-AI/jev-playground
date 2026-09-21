@@ -100,3 +100,56 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(255,79,111,.
   .wrap { width: min(100% - 26px, 1120px); }.topbar { height: 66px; }.brand span:last-child { display: none; }.ghost-button { display: none; }.hero { min-height: auto; padding-top: 46px; }.hero h1 { font-size: 49px; }.hero-copy > p { font-size: 14px; }.hero-orbit { height: 230px; }.section-block { padding-top: 62px; }.section-heading h2 { font-size: 34px; }.resume-card { align-items: flex-start; gap: 16px; flex-direction: column; }.history-main { padding: 15px 13px; gap: 10px; }.delete-button { width: 40px; }.quiz-page { padding-top: 26px; }.progress-track { margin-bottom: 36px; }.question-card h1 { font-size: 30px; }.option-list button { padding: 14px; }.quiz-actions { position: sticky; bottom: 12px; background: rgba(255,249,242,.92); backdrop-filter: blur(8px); padding: 10px 0; }.result-panel { padding: 20px 17px; }.result-hero { min-height: 240px; padding: 26px; }.result-hero h1 { font-size: 46px; }.result-sticker { right: 18px; top: 18px; font-size: 48px; }.key-sheet { padding: 26px 22px; }
 }
 @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration: .01ms !important; scroll-behavior: auto !important; } }
+
+/* ---- footer credits ---- */
+.footer p { margin: 4px 0; }
+.footer a { color: #6f6560; font-weight: 800; text-decoration: underline; text-decoration-color: #d8ccc5; text-underline-offset: 3px; }
+.footer a:hover { color: var(--red); text-decoration-color: var(--red); }
+
+/* ---- multi-page shell: site nav ---- */
+.site-nav { display: flex; gap: 4px; background: rgba(255,255,255,.7); border: 1px solid var(--line); border-radius: 999px; padding: 4px; }
+.site-nav button { border: 0; background: transparent; border-radius: 999px; padding: 8px 14px; font-weight: 800; font-size: 13px; cursor: pointer; color: var(--muted); }
+.site-nav button:hover { color: var(--ink); }
+.site-nav button.active { background: var(--ink); color: white; }
+
+/* ---- landing / game hero extras ---- */
+.cta-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; }
+.cta-row .back-button { background: rgba(255,255,255,.7); }
+.orbit-card strong small { font-size: 20px; letter-spacing: 0; margin-left: 2px; }
+
+/* ---- how-it-works demos (Choice / Score / Noul) ---- */
+.choice-demo { display: grid; gap: 7px; }
+.choice-demo > div { display: grid; grid-template-columns: 14px 1fr 34px; gap: 8px; align-items: center; font-size: 11px; font-weight: 800; }
+.choice-demo i { height: 9px; background: rgba(255,255,255,.55); border: 1px solid rgba(0,0,0,.18); border-radius: 99px; overflow: hidden; }
+.choice-demo b { display: block; height: 100%; background: var(--ink); border-radius: inherit; }
+.choice-demo em { font-style: normal; text-align: right; }
+.scale-demo > em { display: block; font-style: normal; font-size: 11px; font-weight: 800; margin-top: 10px; }
+.scale-track { height: 10px; border-radius: 99px; background: rgba(255,255,255,.55); border: 1px solid rgba(0,0,0,.18); position: relative; }
+.scale-track i { position: absolute; top: 50%; width: 18px; height: 18px; transform: translate(-50%, -50%); background: var(--ink); border: 2px solid white; border-radius: 50%; box-shadow: 2px 2px 0 rgba(0,0,0,.22); }
+.scale-marks { display: flex; justify-content: space-between; font-size: 10px; font-weight: 800; margin-top: 9px; color: rgba(0,0,0,.55); }
+.noul-demo > em { display: block; font-size: 11px; font-weight: 700; color: rgba(0,0,0,.6); margin-top: 9px; }
+.noul-split { height: 44px; border: 2px solid var(--ink); border-radius: 14px; overflow: hidden; display: flex; background: white; }
+.noul-split i { background: var(--red); color: white; display: grid; place-items: center; font-style: normal; font-weight: 900; font-size: 12px; min-width: 0; white-space: nowrap; }
+.noul-split b { flex: 1; display: grid; place-items: center; font-weight: 900; font-size: 12px; white-space: nowrap; }
+
+/* ---- module & experiment cards ---- */
+.status-pill { font-size: 11px; font-weight: 900; border-radius: 999px; padding: 7px 11px; border: 1px solid rgba(0,0,0,.25); }
+.status-pill.open { background: var(--ink); color: var(--lime); border-color: var(--ink); }
+.status-pill.soon { background: rgba(255,255,255,.55); }
+.card-actions > button:only-child { grid-column: 1 / -1; }
+.card-actions button:disabled { opacity: .55; cursor: not-allowed; }
+
+/* ---- manifesto ---- */
+.manifesto-block { padding-bottom: 84px; }
+.manifest { margin: 0; background: var(--ink); color: white; border-radius: 28px; padding: 46px 42px; box-shadow: 8px 8px 0 #ffc7d1; position: relative; overflow: hidden; }
+.manifest::after { content: "✦"; position: absolute; right: 34px; top: 22px; font-size: 58px; color: var(--red); transform: rotate(14deg); }
+.manifest.tint-lime::after { color: var(--lime); }
+.manifest p { font-size: clamp(26px, 3.6vw, 40px); font-weight: 900; line-height: 1.4; letter-spacing: -.04em; margin: 14px 0 0; }
+.manifest em { color: var(--lime); font-style: normal; }
+
+@media (max-width: 640px) {
+  .site-nav { padding: 3px; }.site-nav button { padding: 7px 10px; font-size: 12px; }.key-button { padding: 8px 11px; font-size: 12px; }
+}
+@media (max-width: 520px) {
+  .cta-row .next-button, .cta-row .back-button { flex: 1; }.manifest { padding: 32px 24px; }.manifest::after { font-size: 40px; right: 20px; top: 16px; }.manifesto-block { padding-bottom: 62px; }.noul-split { height: 38px; }
+}
