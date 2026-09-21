@@ -12,7 +12,9 @@
     "demo": "node --env-file=.env src/cli.mjs --sample",
     "test": "node --test",
     "test:api": "node --env-file=.env src/api-smoke.mjs",
-    "test:auto-api": "node --env-file=.env scripts/auto-api-smoke.mjs"
+    "test:auto-api": "node --env-file=.env scripts/auto-api-smoke.mjs",
+    "cf:dev": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
     "@typesafe-ai/sdk": "0.6.0",
@@ -22,6 +24,10 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "6.1.1",
-    "vite": "8.3.0"
+    "vite": "8.3.0",
+    "wrangler": "^4.135.0"
+  },
+  "allowScripts": {
+    "workerd@1.20260918.1": true
   }
 }

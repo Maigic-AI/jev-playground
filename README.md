@@ -46,6 +46,21 @@ npm start
 
 生产服务默认监听 `127.0.0.1:5173`，可通过 `PORT` 修改端口。
 
+## 部署到 Cloudflare
+
+站点部署为 Cloudflare Workers + 静态资源（`wrangler.jsonc`）：`dist/` 由资源绑定直接下发（未命中的路由回落到 `index.html`，SPA 路由可用），`/api/system-one` 由 `worker/index.mjs` 处理，与本地 Express 服务共享 `shared/system-one.mjs` 中的校验与 TypeSafe SDK 调用逻辑。
+
+```bash
+npx wrangler login   # 首次需要，浏览器授权
+npm run deploy       # 构建 + wrangler deploy
+```
+
+本地按 Worker 方式预览（端口 8787）：
+
+```bash
+npm run cf:dev
+```
+
 ## 测试
 
 ```bash
