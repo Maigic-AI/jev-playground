@@ -23,7 +23,7 @@
 - 标准计分在浏览器本地完成
 - 人工作答模式保留为可选对照
 - 测试草稿和结果保存在 `localStorage`
-- API key 仅保存在页面内存，通过同源 Node 代理发送，不进入本地记录
+- 不填 key 可直接使用站方共享的默认 API（每日全站共享限额，页面会显示当日剩余次数）；自己的 API key 仅保存在页面内存，通过同源代理发送，不进入本地记录
 - 响应式手机界面
 
 ## 开发
@@ -48,18 +48,26 @@ npm start
 
 ## 部署到 Cloudflare
 
-站点部署为 Cloudflare Workers + 静态资源（`wrangler.jsonc`）：`dist/` 由资源绑定直接下发（未命中的路由回落到 `index.html`，SPA 路由可用），`/api/system-one` 由 `worker/index.mjs` 处理，与本地 Express 服务共享 `shared/system-one.mjs` 中的校验与 TypeSafe SDK 调用逻辑。
+站点部署为 Cloudflare Workers + 静态资源（`wrangler.jsonc`）：`dist/` 由资源绑定直接下发（未命中的路由回落到 `index.html`，SPA 路由可用），`/api/system-one` 与 `/api/quota` 由 `worker/index.mjs` 处理，与本地 Express 服务共享 `shared/` 下的校验、TypeSafe SDK 调用与默认 key 配额策略。
+
+访客不填 key 时，代理会改用站方共享的默认 API key（`JEV_API` secret，只存在于服务端，前端与仓库中均不可见），并施加**每日全站共享的调用限额**（`JEV_DAILY_LIMIT`，默认 500，北京时间每日 0 点重置，只有成功调用才计数；配额计数存放在 Durable Object 中，改限额无需迁移）。访客自带 key 的请求不受配额限制。
 
 ```bash
-npx wrangler login   # 首次需要，浏览器授权
-npm run deploy       # 构建 + wrangler deploy
+npx wrangler login            # 首次需要，浏览器授权
+npx wrangler secret put JEV_API   # 配置站方默认 key（只存服务端，不进仓库）
+npm run deploy                # 构建 + wrangler deploy
 ```
 
-本地按 Worker 方式预览（端口 8787）：
+修改每日限额：改 `wrangler.jsonc` 中 `vars.JEV_DAILY_LIMIT` 后重新 `npm run deploy`（或在 Cloudflare Dashboard → Worker → Settings → Variables 中直接改，即时生效）。
+
+本地按 Worker 方式预览（端口 8787；secret 与变量从 `.dev.vars` 读取，模板见 `.dev.vars.example`，已被 .gitignore 忽略）：
 
 ```bash
+cp .dev.vars.example .dev.vars   # 填入 JEV_API，可把 JEV_DAILY_LIMIT 调小便于测试
 npm run cf:dev
 ```
+
+本地 Express（`npm run dev`）走同样的策略：从 `.env` 读取 `JEV_API` / `JEV_DAILY_LIMIT`，配额为进程内计数（重启即重置；生产以 Worker 的 Durable Object 为准）。
 
 ## 测试
 

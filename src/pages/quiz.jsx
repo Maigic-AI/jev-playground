@@ -6,7 +6,7 @@ import { percentPair } from "../lib/scoring.js";
 
 const localeName = { zh: "中文", en: "English" };
 
-export default function QuizFeature({ apiKey, onKey }) {
+export default function QuizFeature({ apiKey, onKey, quota, onQuota }) {
   const [view, setView] = useState("hub");
   const [history, setHistory] = useState(readHistory);
   const [session, setSession] = useState(null);
@@ -31,8 +31,8 @@ export default function QuizFeature({ apiKey, onKey }) {
   }
 
   async function startAuto(item, locale = item.languages[0], variant = item.variants?.[0]) {
-    if (!apiKey) {
-      setNotice("先填写 API key，再启动 Jev 自动跑测。");
+    if (!apiKey && quota && !quota.available) {
+      setNotice("本站暂未配置默认 API，请先填写你自己的 API key 再启动 Jev 自动跑测。");
       onKey();
       return;
     }
@@ -41,7 +41,13 @@ export default function QuizFeature({ apiKey, onKey }) {
     setNotice("");
     try {
       const test = await loadTest(item.id, locale, variant);
-      const { standard, run } = await runJevQuestionnaire(test, apiKey, setRunProgress);
+      const needed = Math.ceil(test.questions.length / 18);
+      if (!apiKey && quota && quota.remaining < needed) {
+        setNotice(`今日默认 API 仅剩 ${quota.remaining} 次，这次自动跑测约需 ${needed} 次。请填写自己的 API key，或等北京时间 0 点额度重置后再来。`);
+        onKey();
+        return;
+      }
+      const { standard, run } = await runJevQuestionnaire(test, apiKey, setRunProgress, onQuota);
       const completed = {
         id: crypto.randomUUID(),
         runMode: "auto",
@@ -58,7 +64,8 @@ export default function QuizFeature({ apiKey, onKey }) {
       setHistory(saveResult(completed));
       setView("result");
     } catch (error) {
-      setNotice(`自动跑测失败：${error.message}`);
+      if (error.quota) onQuota(error.quota);
+      setNotice(error.quota ? error.message : `自动跑测失败：${error.message}`);
       setView("hub");
     } finally {
       setLoading(false);
@@ -80,15 +87,16 @@ export default function QuizFeature({ apiKey, onKey }) {
     setLoading(true);
     let jev = null;
     let apiError = null;
-    if (apiKey) {
+    if (apiKey || quota?.available) {
       try {
         const payload = buildJevPayload(session.test, session.answers);
         const response = await fetch("/api/system-one", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ apiKey, ...payload }),
+          body: JSON.stringify({ ...(apiKey ? { apiKey } : {}), ...payload }),
         });
         const body = await response.json();
+        if (body.quota) onQuota(body.quota);
         if (!response.ok) throw new Error(body.error || "Jev 请求失败");
         jev = body;
       } catch (error) {

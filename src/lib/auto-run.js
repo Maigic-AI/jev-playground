@@ -45,7 +45,7 @@ export function decodeAutoBatch(sourceQuestions, response) {
   });
 }
 
-export async function runJevQuestionnaire(test, apiKey, onProgress = () => {}, batchSize = DEFAULT_BATCH_SIZE) {
+export async function runJevQuestionnaire(test, apiKey, onProgress = () => {}, onQuota = () => {}, batchSize = DEFAULT_BATCH_SIZE) {
   const batches = [];
   for (let index = 0; index < test.questions.length; index += batchSize) {
     batches.push(test.questions.slice(index, index + batchSize));
@@ -59,13 +59,20 @@ export async function runJevQuestionnaire(test, apiKey, onProgress = () => {}, b
   for (let index = 0; index < batches.length; index += 1) {
     onProgress({ batch: index + 1, batches: batches.length, answered: details.length, total: test.questions.length });
     const payload = buildAutoBatch(test, batches[index]);
+    // 不带 apiKey 时由服务端改用站方默认 API（受每日配额限制）。
     const httpResponse = await fetch("/api/system-one", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey, ...payload }),
+      body: JSON.stringify({ ...(apiKey ? { apiKey } : {}), ...payload }),
     });
     const response = await httpResponse.json();
-    if (!httpResponse.ok) throw new Error(response.error || `第 ${index + 1} 批请求失败`);
+    if (response.quota) onQuota(response.quota);
+    if (!httpResponse.ok) {
+      const error = new Error(response.error || `第 ${index + 1} 批请求失败`);
+      error.status = httpResponse.status;
+      error.quota = response.quota ?? null;
+      throw error;
+    }
     details.push(...decodeAutoBatch(batches[index], response));
     model = response.model;
     inputTokens += response.usage.input_tokens;

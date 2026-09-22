@@ -5,22 +5,32 @@ import { TypeSafeClient } from "@typesafe-ai/sdk";
 
 const fail = (status, error) => ({ status, payload: { error } });
 
-export async function handleSystemOne(requestBody) {
-  const { apiKey, state, questions, model = "jev-latest" } = requestBody ?? {};
+/** 请求体校验：通过返回 null，否则返回 { status, error }。供策略模块在预占配额前先校验。 */
+export function validateSystemOneBody(requestBody) {
+  const { apiKey, state, questions } = requestBody ?? {};
   if (typeof apiKey !== "string" || !apiKey.trim()) {
-    return fail(400, "请先填写 TypeSafe API key。");
+    return { status: 400, error: "请先填写 TypeSafe API key。" };
   }
   if (!state || !questions || typeof questions !== "object") {
-    return fail(400, "测试数据不完整。");
+    return { status: 400, error: "测试数据不完整。" };
   }
   const entries = Object.entries(questions);
   if (entries.length < 1 || entries.length > 40) {
-    return fail(400, "问题数量必须在 1 到 40 之间。");
+    return { status: 400, error: "问题数量必须在 1 到 40 之间。" };
   }
   for (const [, question] of entries) {
     if (!question || !["choice", "score", "noul"].includes(question.type)) {
-      return fail(400, "包含不支持的问题类型。");
+      return { status: 400, error: "包含不支持的问题类型。" };
     }
+  }
+  return null;
+}
+
+export async function handleSystemOne(requestBody) {
+  const { apiKey, state, questions, model = "jev-latest" } = requestBody ?? {};
+  const invalid = validateSystemOneBody(requestBody);
+  if (invalid) {
+    return fail(invalid.status, invalid.error);
   }
 
   try {
