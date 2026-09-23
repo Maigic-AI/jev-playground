@@ -67,7 +67,9 @@ function App() {
       {path === "/quiz" && (
         <QuizFeature key={quizReset} apiKey={apiKey} onKey={() => setKeyOpen(true)} quota={quota} onQuota={applyQuota} />
       )}
-      {path === "/game" && <GameHome navigate={navigate} />}
+      {path === "/game" && (
+        <GameHome navigate={navigate} apiKey={apiKey} onKey={() => setKeyOpen(true)} quota={quota} onQuota={applyQuota} />
+      )}
       <footer className="wrap footer">
         <p>Jev Playground · 娱乐性实验 · API key 仅保存在当前页面内存中</p>
         <p>
