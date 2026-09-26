@@ -1,12 +1,16 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
-  PAPER, createRng, createDriftState, summon, ask, sendOff, step,
+  PAPER, createRng, createDriftState, summon, ask, sendOff, step, slippedLoose,
 } from "../lib/bixian-drift.js";
 import { CELLS, VERIFY_CELL } from "../lib/bixian-board.js";
 import { createTrail, pruneTrail, trailSample, trailBuckets } from "../lib/bixian-trail.js";
 import {
   createResponder, adjudicate, nextMood, MOOD_PARAMS, runSpiritCall,
 } from "../lib/bixian-responder.js";
+import {
+  DISTURB_TIERS, VIBES, BURST, CANDLE_DIP, tierForMood, rhythmForPhase,
+  createDisturbState, stepAmbient, settlePlan,
+} from "../lib/bixian-disturb.js";
 
 // 仪式口诀（调研报告 §2.3：人民网版本的语序）
 const CHANT_SUMMON = "笔仙笔仙，我是你的今生，你是我的前世，若要与我续缘，请在纸上画圈。";
@@ -16,6 +20,8 @@ const PERSONALITY = "steady"; // 请仙时的静息基准性格；越界/禁忌�
 const STILL_PHASES = new Set(["idle", "returned", "settled"]); // 笔迹沥干后可停帧的相位
 const CN_NUM = ["一", "二", "三", "四", "五"];
 const SPIRIT_DRY = new Set(["quota", "exhausted"]); // 仙力竭尽的两种来路：429 实测 / 配额预判
+const SLIP_HINT = "离笔过远，笔已脱手——指尖按在笔近处（随笔而行）续扶"; // 严格式脱手提示（问询/纸面下共用）
+const VIBE_OK = typeof navigator !== "undefined" && "vibrate" in navigator; // API 在场才试震；脉冲环始终伴发（桌面 Chrome 空有 API 不震，也走补偿）
 const STAGE_BADGE = {
   entrance: "归寂", summoning: "请仙", verify: "验笔", inquiry: "问询", divining: "问询", sendoff: "送仙", returned: "回位",
 };
@@ -34,8 +40,24 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
   const driftKindRef = useRef(null); // verify | ask | send：当前 drift 段的仪式语义
   const responderRef = useRef(createResponder()); // 同局同问缓存（随局重建）
   const verdictRef = useRef(null); // 当前问的裁决：settled/strayed 回调按它落文案与问事录
-  const moodRef = useRef("calm"); // 笔势：calm|restless|furious，越界转躁、触怒升档、随局持续
   const paramsRef = useRef(MOOD_PARAMS.calm); // 帧循环实际使用的漂移参数包（随笔势换）
+  const paperWrapRef = useRef(null); // 纸面块：摇晃/爆发/骤暗类全在这上面 imperative 挂（className prop 保持静态，不与 React 冲突）
+  const pointerRef = useRef(null); // 指尖纸面坐标：严格式脱手判定与共振输入共用
+  const disturbRef = useRef(createDisturbState()); // 环境震动调度器（随局重建）
+  const pulseSeqRef = useRef(0); // 脉冲环自增 id（React key）
+  const timersRef = useRef(new Set()); // 扰动相关延时器集中管理，卸载时统一清
+  const [mood, setMood] = useState("calm"); // 笔势：calm|restless|furious，越界转躁、触怒升档、随局持续（亦驱动常驻摇晃档）
+  const moodRef = useRef(mood); moodRef.current = mood;
+  const [holdStyle, setHoldStyle] = useState("strict"); // 扶笔式：严格为默认（指尖随笔，离笔即脱）；宽松（按压即扶）为易用/无障碍开关
+  const [resonance, setResonance] = useState(false); // 共振放大：严格式下指尖偏离成为笔的扰动力；可选、默认关
+  const [vibeOn, setVibeOn] = useState(true); // 震动：仅扶笔时发（手指在笔上才有体感），移动端默认开
+  const [reduced, setReduced] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  const [slipNote, setSlipNote] = useState(false); // 严格式脱手提示（离笔过远）
+  const [pulses, setPulses] = useState([]); // 视觉脉冲环：无 Vibration API 环境的震动补偿，{ id, x, y, calm }
+  const holdStyleRef = useRef(holdStyle); holdStyleRef.current = holdStyle;
+  const resonanceRef = useRef(resonance); resonanceRef.current = resonance;
+  const vibeOnRef = useRef(vibeOn); vibeOnRef.current = vibeOn;
+  const reducedRef = useRef(reduced); reducedRef.current = reduced;
   const [stage, setStage] = useState("entrance"); // entrance|summoning|verify|drift|divining|inquiry|sendoff|returned
   const stageRef = useRef(stage); // 异步裁决返回时核对局面未变（避免闭包旧 stage）
   stageRef.current = stage;
@@ -58,6 +80,60 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
     flashTimerRef.current = setTimeout(() => setFlash(null), 2800);
   }
 
+  function after(ms, fn) {
+    const timer = setTimeout(() => { timersRef.current.delete(timer); fn(); }, ms);
+    timersRef.current.add(timer);
+    return timer;
+  }
+
+  function noteSlip() {
+    setSlipNote(true);
+    after(3200, () => setSlipNote(false));
+  }
+
+  function vibeLive() { // 震动闸门：扶笔中、未关、未降级（帧循环与落定顿共用同一判据）
+    return holdingRef.current && vibeOnRef.current && !reducedRef.current;
+  }
+
+  // —— 扰动呈现：何时发已由 bixian-disturb 裁定，这里只管「怎么动」——
+
+  function burstSway() { // 落定爆发一档：±10px+0.5°×8 次 0.11s（参数契约在 BURST，CSS 同源标定）
+    const el = paperWrapRef.current;
+    if (!el) return;
+    el.classList.remove("bx-burst");
+    void el.offsetWidth; // 强制回流以重启动画：连续两问都要能爆发
+    el.classList.add("bx-burst");
+    after(BURST.reps * BURST.stepMs + 80, () => el.classList.remove("bx-burst"));
+  }
+
+  function candleDip() { // 烛光骤暗：brightness .5 / 550ms（transition 实现，减弱动效下「短暗」仍保留）
+    const el = paperWrapRef.current;
+    if (!el) return;
+    el.classList.add("bx-dip");
+    after(CANDLE_DIP.ms, () => el.classList.remove("bx-dip"));
+  }
+
+  function spawnPulse(calm = false) { // 视觉脉冲环（减弱动效下不发：无闪）
+    if (reducedRef.current) return;
+    const pos = engineRef.current?.pos ?? PAPER.center;
+    const id = ++pulseSeqRef.current;
+    setPulses((list) => [...list, { id, x: pos.x, y: pos.y, calm }]);
+    after(800, () => setPulses((list) => list.filter((pulse) => pulse.id !== id)));
+  }
+
+  function fireVibe(pattern) { // 震动与脉冲环同发（原型同款）：脉冲按震动节拍逐段绽开——有体感的机器是伴视，
+    // 无 Vibration API（iOS Safari）或空有 API 不震（桌面 Chrome）的机器自动成为纯补偿，不漏发
+    let at = 0;
+    pattern.forEach((ms, i) => { if (i % 2 === 0) after(at, () => spawnPulse()); at += ms; });
+    if (VIBE_OK) {
+      try { navigator.vibrate(pattern); } catch { /* 权限/环境异常：静默 */ }
+    }
+  }
+
+  // 帧循环经 ref 调用，避免闭包拿到旧函数（同 handlePhaseRef 之理）
+  const fireVibeRef = useRef(() => {});
+  fireVibeRef.current = fireVibe;
+
   // 相位迁移的界面反响（由帧循环回调；经 ref 持有以避免闭包拿到旧 stage）
   const handlePhaseRef = useRef(() => {});
   handlePhaseRef.current = (nextPhase, prevPhase) => {
@@ -70,6 +146,11 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
       const verifying = driftKindRef.current === "verify";
       const fate = !verifying && verdictRef.current?.source === "fate";
       flashOnce(verifying ? `仙至——验笔落『${answer.label}』` : `问毕——落定『${answer.label}』${fate ? " · 天意" : ""}`);
+      // 落定扰动：常态爆发+烛光骤暗；减弱动效降级为只骤暗。落定顿仅扶笔时给（spec：震动只在扶笔时发）
+      const plan = settlePlan({ reduced: reducedRef.current });
+      if (plan.burst) burstSway();
+      if (plan.dip) candleDip();
+      if (vibeLive()) fireVibe(VIBES.settle.pattern);
       setQuestions((list) => [
         ...list,
         verifying
@@ -83,12 +164,14 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
     if (nextPhase === "strayed") {
       const cause = verdictRef.current?.cause === "taboo" ? "taboo" : "overstep";
       flashOnce(cause === "taboo" ? "触怒笔仙——扰动骤升，笔怒而迷走" : "此问越界——笔势转躁，笔自迷走");
+      spawnPulse(); // 迷走一圈脉冲（纯视觉，减弱动效下不发）
       setQuestions((list) => [...list, { q: lastQuestionRef.current, answer: "迷走", kind: "stray", cause }]);
       setStage("inquiry");
       return;
     }
     if (nextPhase === "returned") {
       flashOnce("笔回位，仙已送走");
+      spawnPulse(true); // 回位一环静环收束
       setStage("returned");
     }
   };
@@ -103,13 +186,26 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
       last = now;
       const current = engineRef.current;
       if (current) {
+        // 严格扶笔：指尖离笔逾界即脱手（笔在动，判定须逐帧做）；宽松式不判
+        if (holdingRef.current && holdStyleRef.current === "strict"
+          && slippedLoose(current.pos, pointerRef.current, paramsRef.current.strictRadius)) {
+          releaseHold(true);
+        }
+        // 共振放大仅严格式且开启时接通：指尖偏离成为笔的扰动力（引擎侧按 coupling 施力）
+        const coupled = holdStyleRef.current === "strict" && resonanceRef.current ? pointerRef.current : null;
         const prevPhase = current.phase;
-        step(current, dt, paramsRef.current, { holding: holdingRef.current, mode: "loose", pointer: null });
+        step(current, dt, paramsRef.current, { holding: holdingRef.current, mode: holdStyleRef.current, pointer: coupled });
         if (current.phase !== prevPhase) handlePhaseRef.current(current.phase, prevPhase);
         // 着墨以扶笔为准：扶笔（笔尖受压于纸）才留痕；脱手停驻只剩微颤，不添新墨
         if (holdingRef.current && current.phase !== "idle" && current.phase !== "returned") {
           trailSample(trailRef.current, now / 1000, current.pos.x, current.pos.y);
         }
+        // 环境震动（常息/间歇三连）：仅扶笔时、未关未降级才发；脱手即止、积压不补发
+        const beat = stepAmbient(disturbRef.current, now / 1000, {
+          rhythm: rhythmForPhase(current.phase),
+          active: vibeLive(),
+        });
+        if (beat) fireVibeRef.current(beat.pattern);
       }
       pruneTrail(trailRef.current, now / 1000);
       const moving = current && !STILL_PHASES.has(current.phase)
@@ -122,6 +218,8 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
     return () => {
       cancelAnimationFrame(raf);
       clearTimeout(flashTimerRef.current);
+      for (const timer of timersRef.current) clearTimeout(timer);
+      timersRef.current.clear();
     };
   }, []);
 
@@ -138,12 +236,16 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
     lastQuestionRef.current = "";
     responderRef.current = createResponder(); // 同问缓存随局重建：上一局的裁决不带入新局
     verdictRef.current = null;
-    moodRef.current = "calm"; // 笔势归静
+    disturbRef.current = createDisturbState(); // 环境震动随局重新布防
+    setMood("calm"); // 笔势归静
+    moodRef.current = "calm";
     paramsRef.current = MOOD_PARAMS.calm;
     setQuestions([]);
     setInput("");
     setFlash(null);
     setFateNote(null);
+    setSlipNote(false);
+    setPulses([]);
     setStage("summoning");
   }
 
@@ -176,8 +278,10 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
     });
     if (engineRef.current !== current || stageRef.current !== "divining") return; // 等待期间已另起仪式/离场：此问作废
     verdictRef.current = verdict;
-    moodRef.current = nextMood(moodRef.current, verdict); // 越界转躁 / 触怒升档，随局持续
-    paramsRef.current = MOOD_PARAMS[moodRef.current];
+    const next = nextMood(moodRef.current, verdict); // 越界转躁 / 触怒升档，随局持续（怒级常驻摇晃升至明晃即止）
+    moodRef.current = next;
+    setMood(next);
+    paramsRef.current = MOOD_PARAMS[next];
     ask(current, verdict.kind === "answer" ? verdict.cell : null); // 越界/禁忌 → 无目标迷走
     setStage("drift");
   }
@@ -190,18 +294,61 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
     setStage("sendoff");
   }
 
-  // —— 扶笔（宽松式：按压即扶、抬手脱手停驻；笔位从不跟随指针）———
+  // —— 扶笔（严格式默认：指尖按在笔旁、随笔而行，离笔逾 15u 即脱手；宽松式为易用开关：按压即扶。
+  //     两式笔位都从不跟随指针——扶笔只是闸门，脱手即停驻 + 计时冻结）———
+
+  function paperPoint(event) { // 指尖的纸面坐标（viewBox 与 PAPER 同为 100×160，等比映射）
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      x: ((event.clientX - rect.left) / rect.width) * PAPER.w,
+      y: ((event.clientY - rect.top) / rect.height) * PAPER.h,
+    };
+  }
 
   function grabHold(event) {
-    event.currentTarget.setPointerCapture(event.pointerId);
+    try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* 非活动指针（合成事件等）：捕获失败不影响扶笔 */ }
+    const point = paperPoint(event);
+    pointerRef.current = point;
+    const current = engineRef.current;
+    if (holdStyleRef.current === "strict" && current
+      && slippedLoose(current.pos, point, paramsRef.current.strictRadius)) {
+      noteSlip(); // 按点离笔太远：不接入扶笔，提示按近处
+      return;
+    }
     holdingRef.current = true;
     setTick((n) => n + 1);
   }
 
-  function releaseHold() {
+  function moveHold(event) {
+    if (!holdingRef.current) return;
+    pointerRef.current = paperPoint(event);
+  }
+
+  function releaseHold(slipped = false) {
     holdingRef.current = false;
+    pointerRef.current = null;
+    if (slipped) noteSlip();
     setTick((n) => n + 1);
   }
+
+  // —— 常驻摇晃：档随笔势（静/躁微晃、怒明晃），仙在则常驻、回位归寂即止；
+  //     减弱动效下不挂任何摇晃类（全档降级：无晃无闪）。类经 ref imperative 挂卸，className prop 保持静态 ——
+  const spiritAlive = !!engine && phase !== "returned";
+  useEffect(() => {
+    const el = paperWrapRef.current;
+    if (!el) return;
+    for (const tier of DISTURB_TIERS) el.classList.remove(`bx-sway-${tier.id}`);
+    if (reduced || !spiritAlive) return;
+    el.classList.add(`bx-sway-${DISTURB_TIERS[tierForMood(moodRef.current)].id}`);
+  }, [mood, reduced, spiritAlive]);
+
+  // 系统层实时跟随 prefers-reduced-motion（标定/无障碍：切换即时生效）
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const onChange = () => setReduced(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
 
   // —— 纸面渲染 ——
 
@@ -224,7 +371,7 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
           <b className="bx-badge">{stage === "drift" ? driftBadge(driftKindRef.current) : STAGE_BADGE[stage]}</b>
         </div>
         <div className="bx-body">
-          <div className="bx-paper-wrap">
+          <div className="bx-paper-wrap" ref={paperWrapRef}>
             <svg className="bx-paper" viewBox="0 0 100 160" role="img" aria-label="笔仙纸面">
               <defs>
                 {/* 渐变必须 userSpaceOnUse：竖直窄件的 objectBoundingBox 在零宽包围盒下不渲染（原型踩坑） */}
@@ -256,9 +403,16 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
               </g>
               <rect
                 className={`bx-hold${holdable ? "" : " inert"}`} x="0" y="0" width="100" height="160"
-                onPointerDown={grabHold} onPointerUp={releaseHold} onPointerCancel={releaseHold}
+                onPointerDown={grabHold} onPointerMove={moveHold}
+                onPointerUp={() => releaseHold()} onPointerCancel={() => releaseHold()}
               />
             </svg>
+            {pulses.map((pulse) => (
+              <span
+                key={pulse.id} className={`bx-pulse${pulse.calm ? " calm" : ""}`}
+                style={{ left: `${pulse.x}%`, top: `${(pulse.y / 160) * 100}%` }}
+              />
+            ))}
             {flash && <div className="bx-flash" key={flash.label}>{flash.label}</div>}
           </div>
           <aside className="bx-panel">
@@ -267,7 +421,7 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
                 <span className="bx-kicker">入局须知</span>
                 <h2>夜静更深，铺纸请仙</h2>
                 <p>一局之礼：请仙 → 验笔 → 问询 → 送仙 → 回位。至多五问，问毕必送，送必至回位。</p>
-                <p>扶笔之法：按住纸面即扶笔，抬手笔自停驻；笔行于纸，不由人引。</p>
+                <p>扶笔之法：指尖按在笔旁、随笔而行，离笔过远即脱手（易用可切宽松式：按住纸面即扶）；笔行于纸，不由人引。</p>
                 <p className="bx-dim">戏中之事，纯属娱乐。</p>
                 <button className="bx-primary" onClick={beginSummon}>点烛请仙 🕯️</button>
               </div>
@@ -299,7 +453,11 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
               <div className="bx-card">
                 <span className="bx-kicker">{driftKindRef.current === "verify" ? "验笔 · 笔行" : "问询 · 笔行"}</span>
                 <p className="bx-chant">「{driftKindRef.current === "verify" ? "你是笔仙吗？" : lastQuestionRef.current}」</p>
-                <p className="bx-dim">{holding ? "扶笔勿离——笔自运行，蓄势而动，渐近乃止。" : "笔已停驻——按住纸面，续扶此笔。"}</p>
+                <p className="bx-dim">{holding
+                  ? "扶笔勿离——笔自运行，蓄势而动，渐近乃止。"
+                  : slipNote && holdStyle === "strict"
+                    ? `${SLIP_HINT}。`
+                    : "笔已停驻——按住纸面，续扶此笔。"}</p>
               </div>
             )}
             {stage === "inquiry" && (
@@ -353,7 +511,7 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
               <div className="bx-card">
                 <span className="bx-kicker">送仙 · 口诀</span>
                 <p className="bx-chant">「{CHANT_SENDOFF}」</p>
-                <p className="bx-dim">{holding ? "扶笔相送——笔回纸心，停稳即回位。" : "按住纸面扶笔，随笔回位。"}</p>
+                <p className="bx-dim">{holding ? "扶笔相送——笔回纸心，停稳即回位。" : slipNote ? `${SLIP_HINT}，随笔回位。` : "按住纸面扶笔，随笔回位。"}</p>
               </div>
             )}
             {stage === "returned" && (
@@ -367,9 +525,32 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
                 </div>
               </div>
             )}
+            <div className="bx-toggles">
+              <span className="bx-kicker">扶笔与扰动</span>
+              <div className="bx-toggle-row">
+                <span>扶笔式</span>
+                <div className="bx-seg" role="group" aria-label="扶笔式">
+                  <button type="button" className={holdStyle === "strict" ? "on" : ""} onClick={() => setHoldStyle("strict")}>严格</button>
+                  <button type="button" className={holdStyle === "loose" ? "on" : ""} onClick={() => setHoldStyle("loose")}>宽松</button>
+                </div>
+              </div>
+              <label className="bx-toggle-row">
+                <span>共振放大{holdStyle === "strict" ? "" : "（需严格式）"}</span>
+                <input
+                  type="checkbox" checked={resonance && holdStyle === "strict"} disabled={holdStyle !== "strict"}
+                  onChange={(event) => setResonance(event.target.checked)} aria-label="共振放大"
+                />
+              </label>
+              <label className="bx-toggle-row">
+                <span>震动（仅扶笔时{VIBE_OK ? "" : "，此机无体感"}·伴脉冲环）</span>
+                <input type="checkbox" checked={vibeOn} onChange={(event) => setVibeOn(event.target.checked)} aria-label="震动" />
+              </label>
+            </div>
           </aside>
         </div>
-        {drifting && !holding && <div className="bx-hint">笔已停驻 · 按住纸面续扶</div>}
+        {drifting && !holding && (
+          <div className="bx-hint">{slipNote && holdStyle === "strict" ? SLIP_HINT : "笔已停驻 · 按住纸面续扶"}</div>
+        )}
       </div>
     </main>
   );

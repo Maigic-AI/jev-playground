@@ -133,6 +133,14 @@ export function sendOff(s) {
 }
 
 // input: { holding, mode: 'strict'|'loose', pointer: {x,y}|null }
+
+// 严格扶笔的脱手判定：指尖（纸面坐标）距笔超过 strictRadius 即脱手。恰在半径上不算脱——须「超过」。
+// 纯函数供 UI 帧循环调用（引擎内部不跟踪指针位置，只收 holding 闸门）；无指针时不判脱（宽松式路径）。
+export function slippedLoose(pos, pointer, radius = DEFAULT_PARAMS.strictRadius) {
+  if (!pointer) return false;
+  return Math.hypot(pointer.x - pos.x, pointer.y - pos.y) > radius;
+}
+
 export function step(s, dt, p, input) {
   dt = Math.min(dt, 0.05);
   s.holding = !!input.holding;

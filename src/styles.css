@@ -341,6 +341,36 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(255,79,111,.
 .bx-hint { margin-top: 16px; text-align: center; color: var(--bx-dim); font-size: 12px; letter-spacing: .1em; animation: bx-hint-blink 1.8s ease-in-out infinite; }
 @keyframes bx-hint-blink { 0%,100% { opacity: .9; } 50% { opacity: .35; } }
 
+/* ---- 笔仙扰动：摇晃/爆发/骤暗/脉冲环（参数与 bixian-disturb.js 同源标定，scope 止于纸面块） ---- */
+.bx-paper-wrap { transition: filter .45s ease-out; }
+.bx-paper-wrap.bx-dip { filter: brightness(.5); transition: filter .12s ease-in; } /* 烛光骤暗 .5 / 550ms（transition 实现，减弱动效下保留） */
+.bx-paper-wrap.bx-sway-slight { animation: bx-sway-slight 2.8s linear infinite; } /* 微晃：常驻档 */
+.bx-paper-wrap.bx-sway-bright { animation: bx-sway-bright .95s linear infinite; } /* 明晃：对照档（仅怒级笔势可达） */
+.bx-paper-wrap.bx-sway-scare { animation: bx-sway-scare .42s linear infinite; } /* 试吓：对照档（不可达，勿接来路） */
+.bx-paper-wrap.bx-burst { animation: bx-burst .11s linear 8; } /* 落定爆发：±10px+0.5°×8 次 */
+@keyframes bx-sway-slight { 0%,100% { transform: none; } 25% { transform: translate(1.1px,-.7px); } 50% { transform: translate(-.9px,.8px); } 75% { transform: translate(.8px,.6px); } }
+@keyframes bx-sway-bright { 0%,100% { transform: none; } 20% { transform: translate(3px,-2px) rotate(.1deg); } 45% { transform: translate(-3.4px,2.4px) rotate(-.12deg); } 70% { transform: translate(2.6px,1.8px) rotate(.08deg); } }
+@keyframes bx-sway-scare { 0%,100% { transform: none; } 15% { transform: translate(6.5px,-4px) rotate(.35deg); } 35% { transform: translate(-7px,5px) rotate(-.4deg); } 55% { transform: translate(5.5px,4px) rotate(.25deg); } 80% { transform: translate(-5px,-4.5px) rotate(-.3deg); } }
+@keyframes bx-burst { 0%,100% { transform: none; } 25% { transform: translate(10px,-6px) rotate(.5deg); } 75% { transform: translate(-10px,7px) rotate(-.5deg); } }
+.bx-pulse { position: absolute; width: 1.1em; height: 1.1em; border: 1.5px solid var(--bx-amber-bright); border-radius: 50%; translate: -50% -50%; pointer-events: none; z-index: 2; animation: bx-pulse .7s ease-out forwards; }
+.bx-pulse.calm { border-color: #7d6a45; }
+@keyframes bx-pulse { from { opacity: .95; scale: 1; } to { opacity: 0; scale: 6.5; } }
+/* 减弱动效兜底：JS 已不挂摇晃/爆发类，此处防系统设置中途切换；烛光闪与脉冲环同禁（无晃无闪），
+   只余静态烛光底色与落定短暗（dip 走 transition，不受 animation 禁令影响） */
+@media (prefers-reduced-motion: reduce) {
+  .bx-paper-wrap, .bx-paper-wrap::after { animation: none !important; }
+  .bx-pulse { display: none; }
+}
+
+/* ---- 笔仙扶笔与扰动开关 ---- */
+.bx-toggles { display: grid; gap: 12px; background: var(--bx-panel); border: 1px dashed var(--bx-line); border-radius: 14px; padding: 14px 16px; }
+.bx-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; color: #d8caa6; }
+.bx-seg { display: flex; border: 1px solid var(--bx-line); border-radius: 999px; overflow: hidden; }
+.bx-seg button { border: none; background: transparent; color: var(--bx-dim); padding: 6px 14px; font-size: 12px; font-weight: 800; cursor: pointer; }
+.bx-seg button.on { background: var(--bx-amber); color: #1c130a; }
+.bx-toggle-row input { width: 16px; height: 16px; accent-color: var(--bx-amber); margin: 0; }
+.bx-toggle-row input:disabled { opacity: .35; }
+
 /* ---- 笔仙 responsive ---- */
 @media (max-width: 880px) {
   .bx-body { grid-template-columns: 1fr; }

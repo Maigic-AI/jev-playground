@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   PAPER, DEFAULT_PARAMS, PERSONALITIES, paramsFor, createRng,
-  createDriftState, summon, ask, sendOff, step,
+  createDriftState, summon, ask, sendOff, step, slippedLoose,
 } from "../src/lib/bixian-drift.js";
 import { CELLS, cellByKey } from "../src/lib/bixian-board.js";
 
@@ -238,6 +238,17 @@ test("松手微抖：幅度参数定在 0.2–0.3u，脱手期笔仍可见地颤
   });
   // 8s 累计颤动路径：0.25u 幅度约 24u；原型旧值 0.09u 仅约 9u（几乎不可见）——下界用于排除旧值回退
   assert.ok(path >= 15 && path <= 30, `脱手期 8s 颤动路径 ${path.toFixed(1)}u 应可见但不夸张`);
+});
+
+// ============ 严格扶笔 ============
+test("严格脱手判定：指尖距笔逾 strictRadius（默认 15u）即脱手，恰在半径上不脱", () => {
+  const pen = { x: 50, y: 80 };
+  assert.equal(slippedLoose(pen, { x: 50 + 14.9, y: 80 }), false, "半径内：仍算扶着");
+  assert.equal(slippedLoose(pen, { x: 50 + 15, y: 80 }), false, "恰在 15u：不脱（须「超过」才脱）");
+  assert.equal(slippedLoose(pen, { x: 50, y: 80 - 15.1 }), true, "超过 15u：脱手");
+  assert.equal(slippedLoose(pen, null), false, "无指针（宽松式/未跟踪）：不判脱手");
+  assert.equal(DEFAULT_PARAMS.strictRadius, 15, "严格判定半径默认 15u（原型标定）");
+  assert.equal(slippedLoose(pen, { x: 50 + 40, y: 80 }, 60), false, "半径可由参数包覆写（如无障碍放宽）");
 });
 
 // ============ 迷走 ============
