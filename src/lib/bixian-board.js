@@ -19,11 +19,5 @@ export const cellByKey = (key) => CELLS.find((cell) => cell.key === key) || null
 export const VERIFY_CELL = cellByKey("勾");
 
 // 答案类别字表（CONTEXT.md）：是否、一至十、唐宋元明清、男女；
-// 勾/叉是验笔的确认符号，不作问询答案
+// 勾/叉是验笔的确认符号，不入答案类别（问询裁决的落定字表见 bixian-responder 的 GLYPHS）
 export const ANSWER_CELLS = CELLS.filter((cell) => cell.key !== "勾" && cell.key !== "叉");
-
-// 本票的占位裁决：答案为随机预设目标字（回答器接入是后续票的事，届时换成问审+落定）。
-// rng 注入引擎同款可种子源；用当局的漂移 rng 抽签即可整局复现。
-export function pickScriptTarget(rng = Math.random) {
-  return ANSWER_CELLS[Math.floor(rng() * ANSWER_CELLS.length)];
-}

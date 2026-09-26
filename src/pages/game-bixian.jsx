@@ -1,27 +1,30 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
-  PAPER, createRng, createDriftState, summon, ask, sendOff, step, paramsFor,
+  PAPER, createRng, createDriftState, summon, ask, sendOff, step,
 } from "../lib/bixian-drift.js";
-import { CELLS, VERIFY_CELL, pickScriptTarget } from "../lib/bixian-board.js";
+import { CELLS, VERIFY_CELL } from "../lib/bixian-board.js";
 import { createTrail, pruneTrail, trailSample, trailBuckets } from "../lib/bixian-trail.js";
+import {
+  createResponder, adjudicate, nextMood, MOOD_PARAMS, runSpiritCall,
+} from "../lib/bixian-responder.js";
 
 // 仪式口诀（调研报告 §2.3：人民网版本的语序）
 const CHANT_SUMMON = "笔仙笔仙，我是你的今生，你是我的前世，若要与我续缘，请在纸上画圈。";
 const CHANT_SENDOFF = "笔仙笔仙，今日问事已毕，天光将晓，请你回去吧。";
-const MAX_QUESTIONS = 5; // 一局至多五问（验笔是仪式脚本，不占问数）
-const PERSONALITY = "steady"; // 本票固定沉稳基准；漂移性格三档与每局随机属后续票
-const PARAMS = paramsFor(PERSONALITY);
+const MAX_QUESTIONS = 5; // 一局至多五问（验笔是仪式脚本，不占问数；迷走亦不占）
+const PERSONALITY = "steady"; // 请仙时的静息基准性格；越界/禁忌经 MOOD_PARAMS 转躁、升档
 const STILL_PHASES = new Set(["idle", "returned", "settled"]); // 笔迹沥干后可停帧的相位
 const CN_NUM = ["一", "二", "三", "四", "五"];
+const SPIRIT_DRY = new Set(["quota", "exhausted"]); // 仙力竭尽的两种来路：429 实测 / 配额预判
 const STAGE_BADGE = {
-  entrance: "归寂", summoning: "请仙", verify: "验笔", inquiry: "问询", sendoff: "送仙", returned: "回位",
+  entrance: "归寂", summoning: "请仙", verify: "验笔", inquiry: "问询", divining: "问询", sendoff: "送仙", returned: "回位",
 };
 // 笔行段（drift）的徽章随仪式语义走：验笔之问用「验笔」，正式问询用「问询」（词条不另造词）
 const driftBadge = (kind) => (kind === "verify" ? "验笔" : "问询");
 
 export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
-  // apiKey / onKey / quota / onQuota 是既有注入缝（同猜拳的挂法），为回答器接入的后续票预留；
-  // 本票答案为脚本目标字，全程零调用、不耗仙力。
+  // apiKey / onKey / quota / onQuota 沿用全站注入缝：自带 key 优先用自己的灵力，
+  // 否则走站方共享配额；仙力竭尽或调用失败时回答器自退天意（见 bixian-responder）。
   const engineRef = useRef(null);
   const trailRef = useRef(createTrail());
   const holdingRef = useRef(false);
@@ -29,15 +32,25 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
   const flashTimerRef = useRef(null);
   const lastQuestionRef = useRef(""); // 当前 drift 段的用户问题
   const driftKindRef = useRef(null); // verify | ask | send：当前 drift 段的仪式语义
-  const [stage, setStage] = useState("entrance"); // entrance|summoning|verify|drift|inquiry|sendoff|returned
-  const [questions, setQuestions] = useState([]); // 本局问事：{ q, answer, kind: verify|ask|stray }
+  const responderRef = useRef(createResponder()); // 同局同问缓存（随局重建）
+  const verdictRef = useRef(null); // 当前问的裁决：settled/strayed 回调按它落文案与问事录
+  const moodRef = useRef("calm"); // 笔势：calm|restless|furious，越界转躁、触怒升档、随局持续
+  const paramsRef = useRef(MOOD_PARAMS.calm); // 帧循环实际使用的漂移参数包（随笔势换）
+  const [stage, setStage] = useState("entrance"); // entrance|summoning|verify|drift|divining|inquiry|sendoff|returned
+  const stageRef = useRef(stage); // 异步裁决返回时核对局面未变（避免闭包旧 stage）
+  stageRef.current = stage;
+  const [questions, setQuestions] = useState([]); // 本局问事：{ q, answer, kind: verify|ask|stray, via?, cause? }
   const [input, setInput] = useState("");
   const [flash, setFlash] = useState(null); // 落定/回位反馈条
+  const [fateNote, setFateNote] = useState(null); // 上问失准提示：{ q, reason }，可重问
   const [, setTick] = useState(0); // 帧驱动重绘
 
   const engine = engineRef.current;
   const phase = engine ? engine.phase : "idle";
   const askedCount = questions.filter((item) => item.kind === "ask").length;
+  // 问事录口径：验笔是仪式脚本不入录；迷走也是一问（只是不占问数）
+  const isAskedEntry = (item) => item.kind !== "verify";
+  const hasInquired = questions.some(isAskedEntry);
 
   function flashOnce(label) {
     setFlash({ label });
@@ -55,20 +68,22 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
     if (nextPhase === "settled") {
       const { answer } = engineRef.current;
       const verifying = driftKindRef.current === "verify";
-      flashOnce(verifying ? `仙至——验笔落『${answer.label}』` : `问毕——落定『${answer.label}』`);
+      const fate = !verifying && verdictRef.current?.source === "fate";
+      flashOnce(verifying ? `仙至——验笔落『${answer.label}』` : `问毕——落定『${answer.label}』${fate ? " · 天意" : ""}`);
       setQuestions((list) => [
         ...list,
         verifying
           ? { q: "你是笔仙吗？", answer: answer.label, kind: "verify" }
-          : { q: lastQuestionRef.current, answer: answer.label, kind: "ask" },
+          : { q: lastQuestionRef.current, answer: answer.label, kind: "ask", via: verdictRef.current?.source ?? "spirit" },
       ]);
+      if (fate) setFateNote({ q: lastQuestionRef.current, reason: verdictRef.current.reason ?? "call" });
       setStage("inquiry");
       return;
     }
     if (nextPhase === "strayed") {
-      // 防御分支：脚本目标字不会迷走，回答器接入（后续票）后才真正可达
-      flashOnce("笔不肯落定——此问迷走");
-      setQuestions((list) => [...list, { q: lastQuestionRef.current, answer: "迷走", kind: "stray" }]);
+      const cause = verdictRef.current?.cause === "taboo" ? "taboo" : "overstep";
+      flashOnce(cause === "taboo" ? "触怒笔仙——扰动骤升，笔怒而迷走" : "此问越界——笔势转躁，笔自迷走");
+      setQuestions((list) => [...list, { q: lastQuestionRef.current, answer: "迷走", kind: "stray", cause }]);
       setStage("inquiry");
       return;
     }
@@ -89,7 +104,7 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
       const current = engineRef.current;
       if (current) {
         const prevPhase = current.phase;
-        step(current, dt, PARAMS, { holding: holdingRef.current, mode: "loose", pointer: null });
+        step(current, dt, paramsRef.current, { holding: holdingRef.current, mode: "loose", pointer: null });
         if (current.phase !== prevPhase) handlePhaseRef.current(current.phase, prevPhase);
         // 着墨以扶笔为准：扶笔（笔尖受压于纸）才留痕；脱手停驻只剩微颤，不添新墨
         if (holdingRef.current && current.phase !== "idle" && current.phase !== "returned") {
@@ -121,9 +136,14 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
     trailRef.current = createTrail();
     driftKindRef.current = null;
     lastQuestionRef.current = "";
+    responderRef.current = createResponder(); // 同问缓存随局重建：上一局的裁决不带入新局
+    verdictRef.current = null;
+    moodRef.current = "calm"; // 笔势归静
+    paramsRef.current = MOOD_PARAMS.calm;
     setQuestions([]);
     setInput("");
     setFlash(null);
+    setFateNote(null);
     setStage("summoning");
   }
 
@@ -135,22 +155,36 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
     setStage("drift");
   }
 
-  function castQuestion(event) {
-    event.preventDefault();
+  // 发问 = 一次裁决（问审 + 落定，双 choice 一次调用）；retryText 供「重问上问」复用
+  async function castQuestion(event, retryText) {
+    event?.preventDefault();
     const current = engineRef.current;
-    const text = input.trim();
-    if (!current || stage !== "inquiry" || !text || askedCount >= MAX_QUESTIONS) return;
+    const text = (retryText ?? input).trim();
+    if (!current || stageRef.current !== "inquiry" || !text || askedCount >= MAX_QUESTIONS) return;
     if (current.phase !== "settled" && current.phase !== "strayed") return;
     driftKindRef.current = "ask";
     lastQuestionRef.current = text;
-    ask(current, pickScriptTarget(current.rng)); // 本票脚本目标字（随机预设），裁决接入是后续票
     setInput("");
+    setFateNote(null);
+    setStage("divining");
+    // 未带自有 key 且全站配额已知为 0：不必发这一次注定 429 的调用，直接退天意
+    const spiritExhausted = !apiKey && quota?.available === true && quota.remaining < 1;
+    const verdict = await adjudicate(responderRef.current, text, {
+      call: (payload) => runSpiritCall(payload, { apiKey, onQuota }),
+      rng: current.rng,
+      exhausted: spiritExhausted,
+    });
+    if (engineRef.current !== current || stageRef.current !== "divining") return; // 等待期间已另起仪式/离场：此问作废
+    verdictRef.current = verdict;
+    moodRef.current = nextMood(moodRef.current, verdict); // 越界转躁 / 触怒升档，随局持续
+    paramsRef.current = MOOD_PARAMS[moodRef.current];
+    ask(current, verdict.kind === "answer" ? verdict.cell : null); // 越界/禁忌 → 无目标迷走
     setStage("drift");
   }
 
   function castSendOff() {
     const current = engineRef.current;
-    if (!current || stage !== "inquiry" || askedCount < 1 || (current.phase !== "settled" && current.phase !== "strayed")) return;
+    if (!current || stage !== "inquiry" || !hasInquired || (current.phase !== "settled" && current.phase !== "strayed")) return;
     driftKindRef.current = "send";
     sendOff(current);
     setStage("sendoff");
@@ -173,7 +207,7 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
 
   const pos = engine ? engine.pos : PAPER.center;
   const buckets = trailBuckets(trailRef.current, performance.now() / 1000);
-  const summonProgress = phase === "summoning" ? Math.min(1, engine.t / PARAMS.summonTime) : 0;
+  const summonProgress = phase === "summoning" ? Math.min(1, engine.t / paramsRef.current.summonTime) : 0;
   const chantShown = CHANT_SUMMON.slice(0, Math.ceil((stage === "summoning" ? summonProgress : 1) * CHANT_SUMMON.length));
   const litCell = phase === "settled" && engine.answer?.type === "cell" ? engine.answer.key : null;
   const lit = litCell ? CELLS.find((cell) => cell.key === litCell) : null;
@@ -254,6 +288,13 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
                 <button className="bx-primary" onClick={castVerify}>念出此问</button>
               </div>
             )}
+            {stage === "divining" && (
+              <div className="bx-card">
+                <span className="bx-kicker">问询 · 请示</span>
+                <p className="bx-chant">「{lastQuestionRef.current}」</p>
+                <p className="bx-dim bx-await">仙示未至，笔锋微顿——凝神静候。</p>
+              </div>
+            )}
             {stage === "drift" && (
               <div className="bx-card">
                 <span className="bx-kicker">{driftKindRef.current === "verify" ? "验笔 · 笔行" : "问询 · 笔行"}</span>
@@ -270,23 +311,40 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
                     <button className="bx-primary" onClick={castSendOff}>送仙回位</button>
                   </React.Fragment>
                 ) : (
-                  <form className="bx-ask" onSubmit={castQuestion}>
+                  <form className="bx-ask" onSubmit={(event) => castQuestion(event)}>
                     <input
                       value={input} onChange={(event) => setInput(event.target.value)} maxLength={40}
                       placeholder="心中所问，落于纸上" aria-label="欲问之事"
                     />
                     <div className="bx-ask-row">
                       <button type="submit" className="bx-primary" disabled={!input.trim()}>落笔发问</button>
-                      {askedCount >= 1 && <button type="button" className="bx-ghost" onClick={castSendOff}>就此送仙</button>}
+                      {hasInquired && <button type="button" className="bx-ghost" onClick={castSendOff}>就此送仙</button>}
                     </div>
-                    <small className="bx-dim">尚可问 {CN_NUM[MAX_QUESTIONS - askedCount - 1]} 问 · 纸面自答：是否、一至十、唐宋元明清、男女</small>
+                    <small className="bx-dim">尚可问 {CN_NUM[MAX_QUESTIONS - askedCount - 1]} 问 · 纸面自答：勾叉是否、一至十、唐宋元明清、男女</small>
                   </form>
                 )}
-                {questions.some((item) => item.kind !== "verify") && (
+                {fateNote && askedCount < MAX_QUESTIONS && (
+                  <div className="bx-fate-note">
+                    <small className="bx-dim">上问灵力不济、笔迹失准——答案乃天意乱书{SPIRIT_DRY.has(fateNote.reason) ? "，今日仙力已尽" : ""}。重问可再请仙示。</small>
+                    <div className="bx-ask-row">
+                      <button type="button" className="bx-ghost" onClick={() => castQuestion(null, fateNote.q)}>重问上问</button>
+                      {SPIRIT_DRY.has(fateNote.reason) && <button type="button" className="bx-ghost" onClick={onKey}>填自己的 key 续灵力</button>}
+                    </div>
+                  </div>
+                )}
+                {questions.some(isAskedEntry) && (
                   <div className="bx-log">
-                    {questions.filter((item) => item.kind !== "verify").map((item, index) => (
-                      <div key={`${index}-${item.q}`}><span>问{CN_NUM[index]}</span><em>{item.q}</em><b>{item.answer}</b></div>
-                    ))}
+                    {(() => {
+                      let askSeq = 0; // 问数只数 ask（迷走不占问数），故编号必在 CN_NUM 界内
+                      return questions.filter(isAskedEntry).map((item, index) => (
+                        <div key={`${index}-${item.q}`}>
+                          <span>{item.kind === "ask" ? `问${CN_NUM[askSeq++]}` : item.cause === "taboo" ? "怒" : "越"}</span><em>{item.q}</em>
+                          <b className={item.kind === "stray" || item.via === "fate" ? "bx-off" : ""}>
+                            {item.answer}{item.via === "fate" ? "·天意" : ""}
+                          </b>
+                        </div>
+                      ));
+                    })()}
                   </div>
                 )}
               </div>

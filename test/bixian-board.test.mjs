@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { CELLS, cellByKey, ANSWER_CELLS, VERIFY_CELL, pickScriptTarget } from "../src/lib/bixian-board.js";
-import { createRng } from "../src/lib/bixian-drift.js";
+import { CELLS, cellByKey, ANSWER_CELLS, VERIFY_CELL } from "../src/lib/bixian-board.js";
 
 // ============ A 边条布局（spec 定案：顶边勾-是-否-叉，左右列一~五/六~十，底边男唐宋元明清女） ============
 test("A 边条布局：21 字/符号齐备、键唯一、全部落在纸面内", () => {
@@ -44,17 +43,4 @@ test("验笔固定落勾；勾/叉为验笔符号不入答案类别，答案类�
   assert.ok(!keys.has("勾") && !keys.has("叉"), "勾/叉不应出现在答案类别");
   // CONTEXT.md「答案类别」：是否、一至十、唐宋元明清、男女
   for (const key of "是否一二三四五六七八九十唐宋元明清男女") assert.ok(keys.has(key), `答案类别应含『${key}』`);
-});
-
-// ============ 脚本目标字（本票占位裁决：回答器接入前的随机预设） ============
-test("脚本目标字：同种子序列确定、必在答案类别内、多次抽样覆盖广", () => {
-  const run = () => {
-    const rng = createRng(20260926);
-    return Array.from({ length: 200 }, () => pickScriptTarget(rng).key);
-  };
-  const first = run();
-  assert.deepEqual(first, run(), "同种子应给出完全一致的序列");
-  const pool = new Set(ANSWER_CELLS.map((cell) => cell.key));
-  for (const key of first) assert.ok(pool.has(key), `脚本目标『${key}』应在答案类别内`);
-  assert.ok(new Set(first).size >= 17, `200 次抽样应几乎覆盖 19 字（实测 ${new Set(first).size} 种）`);
 });

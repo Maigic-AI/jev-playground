@@ -334,6 +334,10 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(255,79,111,.
 .bx-log span { color: var(--bx-amber); font-weight: 900; font-size: 11px; }
 .bx-log em { font-style: normal; color: #d8caa6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bx-log b { color: var(--bx-amber-bright); font-size: 16px; }
+.bx-log b.bx-off { color: var(--bx-dim); font-size: 13px; font-weight: 600; }
+.bx-fate-note { border: 1px dashed var(--bx-line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 10px; }
+.bx-fate-note small { line-height: 1.7; }
+.bx-await { animation: bx-hint-blink 1.8s ease-in-out infinite; }
 .bx-hint { margin-top: 16px; text-align: center; color: var(--bx-dim); font-size: 12px; letter-spacing: .1em; animation: bx-hint-blink 1.8s ease-in-out infinite; }
 @keyframes bx-hint-blink { 0%,100% { opacity: .9; } 50% { opacity: .35; } }
 
