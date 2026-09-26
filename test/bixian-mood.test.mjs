@@ -19,11 +19,12 @@ const IDS = Object.keys(PERSONALITIES);
 const MOODS = Object.keys(MOOD_OVERLAYS);
 const MOOD_NAMES = { calm: "静", restless: "躁", furious: "怒" };
 const SEEDS = [20260924, 42, 7, 99]; // 与 bixian-drift 的落定矩阵同一组种子（同基准比较）
-// 长尾种子组：换一批种子专挑「收不住」的极端轨迹。40 种子 × 6 目标实测最慢者为飘忽×躁（落定 28.6s）
-// 与飘忽×怒（28.4s），补行送仙最慢 24.1s；故落定上界取 32s、回位上界 32s——留一成余量，
-// 同时仍能挡住「怒改成倍数叠」那类复利回归（那一版实测最长 33.8s / 37.1s，会在此报红）。
-const TAIL_SETTLE_CAP = 32;
-const TAIL_RESUME_CAP = 32;
+// 长尾种子组：换一批种子专挑「收不住」的极端轨迹。压表后按本文件的夹具实测（九组「性格 × 笔势」）：
+// 落定 12 种子 × 2 目标 4.80–9.25s、补行送仙 40 种子 3.70–7.17s，最慢的一组都是飘忽×怒；
+// 故落定上界取 12s、回位上界 10s——留两成余量，同时仍能挡住「怒改成倍数叠」那类复利回归
+// （那一版在旧时间表上实测最长 33.8s / 37.1s）。
+const TAIL_SETTLE_CAP = 12;
+const TAIL_RESUME_CAP = 10;
 const TAIL_SEEDS = Array.from({ length: 40 }, (_, i) => 1000 + i * 977);
 const TAIL_TARGETS = ["是", "三"]; // 顶边与左列各一，覆盖远端与近端
 
@@ -49,16 +50,16 @@ const combo = (id, mood) => `${PERSONALITIES[id].name}×${MOOD_NAMES[mood]}`;
 // ============ 送仙回位：落定后扶笔相送（标准种子组） ============
 for (const id of IDS) {
   for (const mood of MOODS) {
-    test(`送仙回位（${combo(id, mood)}）：落定后送仙，25s 内回位、终距心 <3.5u`, () => {
+    test(`送仙回位（${combo(id, mood)}）：落定后送仙，12s 内回位、终距心 <3.5u`, () => {
       const params = paramsWithMood(id, mood);
       for (const seed of SEEDS) {
         const state = makeReady(id, seed, params);
         ask(state, cellByKey("三"));
-        assert.ok(advanceUntilPhase(state, params, "settled", 45) !== null, `${combo(id, mood)}×seed${seed}：45s 内未落定`);
+        assert.ok(advanceUntilPhase(state, params, "settled", 20) !== null, `${combo(id, mood)}×seed${seed}：20s 内未落定`);
         assert.equal(state.answer.key, "三");
         assert.equal(sendOff(state), true);
-        const returned = advanceUntilPhase(state, params, "returned", 25);
-        assert.ok(returned !== null, `${combo(id, mood)}×seed${seed}：送仙 25s 内未回位`);
+        const returned = advanceUntilPhase(state, params, "returned", 12);
+        assert.ok(returned !== null, `${combo(id, mood)}×seed${seed}：送仙 12s 内未回位`);
         assert.ok(distToCenter(state.pos) < 3.5, `${combo(id, mood)}×seed${seed}：回位后距纸心 ${distToCenter(state.pos).toFixed(2)}u`);
       }
     });
@@ -68,7 +69,7 @@ for (const id of IDS) {
 // ============ 长尾收敛：宽种子组下「落定」与「补行送仙」都不掉链子 ============
 for (const id of IDS) {
   for (const mood of MOODS) {
-    test(`长尾收敛（${combo(id, mood)}）：40 种子下全部落定、答案正确，全部回位`, () => {
+    test(`长尾收敛（${combo(id, mood)}）：极端种子下全部落定、答案正确，40 种子补行全部回位`, () => {
       const params = paramsWithMood(id, mood);
       for (const seed of TAIL_SEEDS.slice(0, 12)) {
         for (const key of TAIL_TARGETS) {
@@ -113,31 +114,32 @@ function playFullRound(id, seed, targets) {
     }
     step(state, DT, params, { holding: true });
     seconds += DT;
-    assert.ok(seconds < 600, `${PERSONALITIES[id].name}：一局超过 10 分钟仍未回位`);
+    assert.ok(seconds < 180, `${PERSONALITIES[id].name}：一局超过 3 分钟仍未回位`);
   }
   return { seconds, state };
 }
 
 const ROUND_TARGETS = [cellByKey("是"), cellByKey("三"), cellByKey("八"), cellByKey("唐"), cellByKey("男")];
 
-test("一局节奏：一问之局在 25s–2min、满局在 3min 内（三档同序：急<稳<飘）", () => {
+// 实测（7 种子/档）：一问之局 急躁 22.2–23.4 / 沉稳 25.9–27.5 / 飘忽 27.6–29.5s；
+// 满局 43.5–45.6 / 55.5–58.9 / 61.0–63.8s（压表前为 110–190s）。窗口留两成余量即可挡回旧节奏。
+test("一局节奏：一问之局在 15–40s、满局在 30–90s（三档同序：急<稳<飘）", () => {
   const totals = {};
   for (const id of IDS) {
     // 一问之局（验笔 + 一问 + 送仙）
     const one = playFullRound(id, SEEDS[0], [VERIFY_CELL, ROUND_TARGETS[0]]);
     assert.equal(one.state.questionCount, 2, "验笔一并算一问");
     assert.equal(one.state.phase, "returned");
-    assert.ok(one.seconds >= 25 && one.seconds <= 120,
-      `${combo(id, "calm")}：一问之局 ${one.seconds.toFixed(1)}s 应在 25s–2min 量级`);
+    assert.ok(one.seconds >= 15 && one.seconds <= 40,
+      `${combo(id, "calm")}：一问之局 ${one.seconds.toFixed(1)}s 应在 15–40s 量级`);
     // 五问之局（验笔 + 五问 + 送仙，即满局）
     const five = playFullRound(id, SEEDS[0], [VERIFY_CELL, ...ROUND_TARGETS]);
     assert.equal(five.state.personality, id, "整局不换性格");
     assert.equal(five.state.questionCount, 6, "六问皆已发出");
     assert.equal(five.state.phase, "returned");
-    // 上界放到 3min：满局本是「五问 × 每问窗」，飘忽按 spec 锚点 23s/问 算，六问就要 2.5min——
-    // 每问的耗时窗（18–28s）是规格的硬约束，一局的上界只能跟着它走
-    assert.ok(five.seconds >= 25 && five.seconds <= 180,
-      `${combo(id, "calm")}：满局 ${five.seconds.toFixed(1)}s 应在 25s–3min 量级`);
+    // 满局本是「六问 × 每问窗」：压表后每问 5–10s，加上口诀 6s，六问应落在 30–90s
+    assert.ok(five.seconds >= 30 && five.seconds <= 90,
+      `${combo(id, "calm")}：满局 ${five.seconds.toFixed(1)}s 应在 30–90s 量级`);
     totals[id] = five.seconds;
   }
   assert.ok(totals.hasty < totals.steady && totals.steady < totals.erratic,
@@ -162,11 +164,11 @@ test("性格不外泄：整局事件流（请仙、落定、迷走、送仙）�
     const params = paramsFor(id);
     const state = makeReady(id, SEEDS[0], params);
     ask(state, cellByKey("是"));
-    assert.ok(advanceUntilPhase(state, params, "settled", 45) !== null);
+    assert.ok(advanceUntilPhase(state, params, "settled", 20) !== null);
     ask(state, null); // 迷走一问，补全事件流的各种来路
-    assert.ok(advanceUntilPhase(state, params, "strayed", 20) !== null);
+    assert.ok(advanceUntilPhase(state, params, "strayed", 12) !== null);
     sendOff(state);
-    assert.ok(advanceUntilPhase(state, params, "returned", 40) !== null);
+    assert.ok(advanceUntilPhase(state, params, "returned", 12) !== null);
     assert.ok(state.events.length >= 5, `夹具有效性：整局应有事件产生（实测 ${state.events.length} 条）`);
     const transcript = state.events.map((event) => event.msg).join("\n");
     for (const other of IDS) {

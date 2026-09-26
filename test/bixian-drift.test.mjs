@@ -76,7 +76,7 @@ test("参数包可整体替换：沉稳即默认，自定义包生效", () => {
   ask(state, cellByKey("是"));
   const t = runToSettled(state, quick, 30);
   assert.ok(t !== null, "自定义快包应能落定");
-  assert.ok(t < 10, `自定义快包落定应明显快于沉稳（实测 ${t}s）`);
+  assert.ok(t < WINDOWS.steady[0], `自定义快包落定应明显快于沉稳窗下界（实测 ${t}s）`);
 });
 
 test("paramsFor 对未知性格 id 显式抛错（不静默回退）", () => {
@@ -91,10 +91,15 @@ test("请仙：口诀期满笔活，位置只在纸心附近微颤", () => {
 });
 
 // ============ 落定矩阵：三档性格 × 多目标字 × 多种子 ============
-// spec 锚点：一问全程 沉稳≈16s / 急躁≈8s / 飘忽≈23s（原型实测 15.2–16.9 / 7.9–9.1 / 21.8–24.5）
+// spec 锚点（压表后）：一问全程 沉稳≈7.6s / 急躁≈5.6s / 飘忽≈8.8s
+// 4 种子 × 6 目标实测 7.00–8.25 / 4.80–5.87 / 8.20–9.30；窗留一成余量，且三档不同窗（快慢仍可辨）。
+// 飘忽的上界定在 10.0s（而非均值上的一成）：README 对玩家许诺的「一问最坏不过 10s」由它守着——
+// 更宽的 400 种子 × 6 目标实测最坏 9.62s（含怒），也在这个界内。
 const MATRIX_TARGETS = ["勾", "是", "三", "八", "十", "唐"]; // 覆盖顶边、左右列、底边
-const WINDOWS = { steady: [12, 20], hasty: [6, 11], erratic: [18, 28] };
-const ANCHOR = { steady: 16, hasty: 8, erratic: 23 };
+const WINDOWS = { steady: [6, 9.5], hasty: [4.2, 7], erratic: [7.8, 10] };
+const ANCHOR = { steady: 7.6, hasty: 5.6, erratic: 8.8 };
+// 长尾种子组：专挑「收不住」的极端轨迹（与 bixian-mood 同一起点 1000+i×977，此处只取前 20 个）；回位停留式的守界用例用它
+const TAIL_SEEDS = Array.from({ length: 20 }, (_, i) => 1000 + i * 977);
 // 笔势轴（#7）：笔势只叠扰动、不换性格，故三档共用同一套耗时窗。笔势的定义在 bixian-responder，
 // 此处验它与引擎的合成——「怒叠在飘忽上」（噪声最猛的一组）是否仍在窗内，此前从未验过。
 const MOOD_NAMES = { calm: "静", restless: "躁", furious: "怒" };
@@ -108,8 +113,8 @@ for (const id of Object.keys(PERSONALITIES)) {
         for (const seed of SEEDS) {
           const state = makeReady(id, seed);
           ask(state, cellByKey(key));
-          const t = runToSettled(state, params, 45);
-          assert.ok(t !== null, `${id}×${mood}×${key}×seed${seed}：45s 内未落定`);
+          const t = runToSettled(state, params, 20);
+          assert.ok(t !== null, `${id}×${mood}×${key}×seed${seed}：20s 内未落定`);
           assert.equal(state.answer.type, "cell");
           assert.equal(state.answer.key, key, `应落在目标字上，实际 ${state.answer.key}`);
           times.push(t);
@@ -118,7 +123,7 @@ for (const id of Object.keys(PERSONALITIES)) {
       const [lo, hi] = WINDOWS[id];
       for (const t of times) assert.ok(t >= lo && t <= hi, `${id}×${mood} 落定耗时 ${t}s 应在窗 [${lo}, ${hi}]s 内`);
       const med = median(times);
-      assert.ok(Math.abs(med - ANCHOR[id]) <= 4, `${id}×${mood} 中位耗时 ${med}s 应接近规格锚点 ${ANCHOR[id]}s`);
+      assert.ok(Math.abs(med - ANCHOR[id]) <= 2, `${id}×${mood} 中位耗时 ${med}s 应接近规格锚点 ${ANCHOR[id]}s`);
     });
   }
 }
@@ -147,36 +152,43 @@ test("性格全程不变：一局（请仙→问→落定→送仙→回位）�
     const state = makeReady(id, SEEDS[0]);
     assert.equal(state.personality, id, "择定的性格随当局引擎落座");
     ask(state, cellByKey("是"));
-    assert.ok(runToSettled(state, paramsFor(id), 45) !== null);
+    assert.ok(runToSettled(state, paramsFor(id), 20) !== null);
     assert.equal(state.personality, id, "问询全程不换性格");
     sendOff(state);
-    advance(state, paramsFor(id), 25, { holding: true });
+    advance(state, paramsFor(id), 12, { holding: true });
     assert.equal(state.phase, "returned");
-    assert.equal(state.personality, id, "送仙归位后仍不换（重开新局才重新择档）");
+    assert.equal(state.personality, id, "送仙回位后仍不换（重开新局才重新择档）");
   }
 });
 
 // ============ 收势锁：末段减速螺旋 ============
-test("收势存在：渐近完成后笔在减速（末段速度显著低于渐近中段）", () => {
+test("收势存在：落定末段笔在减速（末段速度显著低于渐近速度峰值）", () => {
   const params = paramsFor("steady");
   const state = makeReady("steady", SEEDS[0]);
   ask(state, cellByKey("是"));
-  let midSum = 0, midN = 0, lateSum = 0, lateN = 0;
-  advance(state, params, 18, { holding: true }, (frames, s) => {
-    const t = frames * DT;
-    const speed = Math.hypot(s.vel.x, s.vel.y);
-    if (t >= 10 && t <= 11.5) { midSum += speed; midN += 1; }
-    if (t >= 15 && t <= 16) { lateSum += speed; lateN += 1; }
+  // 取窗自锚定，不写死秒数（时间表随性格与版本而变，写死的秒数一压表就失效）：
+  // 峰值取整个 asking 段，末段取「落定前最后半秒」。落定后笔被泊住（vel 归零），
+  // 故只收 asking 帧——混进 settled 帧会把末段均值稀释成假象
+  const speeds = [];
+  advance(state, params, 12, { holding: true }, (frames, s) => {
+    if (s.phase === "asking") speeds.push({ t: frames * DT, speed: Math.hypot(s.vel.x, s.vel.y) });
   });
-  const mid = midSum / midN;
-  const late = lateSum / lateN;
-  assert.ok(late < 0.6 * mid, `收势段应显著减速（渐近中段 ${mid.toFixed(1)} u/s → 末段 ${late.toFixed(1)} u/s）`);
+  assert.equal(state.phase, "settled", "本用例的夹具应能落定");
+  assert.ok(speeds.length > 120, `asking 段应有足够帧数（实测 ${speeds.length}）`);
+  const lateFrom = speeds[speeds.length - 1].t - 0.5;
+  const early = speeds.filter((row) => row.t <= lateFrom);
+  const late = speeds.filter((row) => row.t > lateFrom);
+  assert.ok(early.length > 0 && late.length >= 20, `落定前应有半秒的帧可测（实测 ${late.length}）`);
+  const peak = Math.max(...early.map((row) => row.speed));
+  const lateMean = late.reduce((sum, row) => sum + row.speed, 0) / late.length;
+  assert.ok(lateMean < 0.6 * peak,
+    `收势段应显著减速（渐近峰值 ${peak.toFixed(1)} u/s → 落定前 0.5s 均值 ${lateMean.toFixed(1)} u/s）`);
 });
 
 test("收势必要：去掉末段减速后，沉稳的落定节奏整体被破坏", () => {
-  // 原型实测：整段删除末段速度调制会让笔稳定在命中圈外约 16u 的轨道上永不落定（12/12 失败）——
-  // 那种强突变会直接打红上方落定矩阵（45s 不落定）。这里锁弱突变：仅去掉减速（stillTime 拉满），
-  // 固定种子下节奏确定性地整体右移：中位明显变慢，且至少一组超出沉稳窗。
+  // 原型实测：整段删除末段速度调制会让笔稳定在命中圈外约 16u 的轨道上永不落定（12/12 失败）。
+  // 这里锁弱突变：仅去掉减速（stillTime 拉满，收势强收也随 tail≈1 一并失效），固定种子下节奏
+  // 确定性地整体右移——压表后实测 12/12 仍在 45s 内落定（7.0–11.4s），但中位从 7.6s 抬到 10.0s。
   const noTail = { ...paramsFor("steady"), stillTime: 1e6 };
   const times = [];
   for (const key of MATRIX_TARGETS) {
@@ -189,9 +201,9 @@ test("收势必要：去掉末段减速后，沉稳的落定节奏整体被破�
     }
   }
   const med = median(times);
-  assert.ok(med > 17.5, `去掉收势减速后中位耗时 ${med.toFixed(1)}s 应明显慢于沉稳节奏（默认约 16.2s）`);
+  assert.ok(med > ANCHOR.steady + 1, `去掉收势减速后中位耗时 ${med.toFixed(1)}s 应明显慢于沉稳锚点 ${ANCHOR.steady}s`);
   assert.ok(times.some((t) => t > WINDOWS.steady[1]),
-    `去掉收势减速后应有组合超出沉稳窗 [12, 20]s（实测 ${times.map((t) => t.toFixed(1)).join(", ")}s）`);
+    `去掉收势减速后应有组合超出沉稳窗 [${WINDOWS.steady[0]}, ${WINDOWS.steady[1]}]s（实测 ${times.map((t) => t.toFixed(1)).join(", ")}s）`);
 });
 
 // ============ 蓄势期不提前偏向目标 ============
@@ -202,7 +214,7 @@ test("蓄势期不偏靶：warmup 结束前，不同目标的轨迹逐帧完全�
   ask(left, cellByKey("一")); // 左列远端
   ask(right, cellByKey("十")); // 右列远端
   const params = paramsFor("steady");
-  const frames = Math.ceil(warmup / DT) - 1; // 只取严格早于 warmup 结束的帧（末帧 t 理论=6.0，浮点累加可能越界）
+  const frames = Math.ceil(warmup / DT) - 1; // 只取严格早于 warmup 结束的帧（末帧 t 理论=warmup，浮点累加可能越界）
   for (let i = 0; i < frames; i += 1) {
     step(left, DT, params, { holding: true });
     step(right, DT, params, { holding: true });
@@ -216,7 +228,7 @@ test("脱手：蓄势/渐近计时全部冻结、笔停驻微抖；重扶从停�
   const params = paramsFor("steady");
   const state = makeReady("steady", SEEDS[0]);
   ask(state, cellByKey("三"));
-  advance(state, params, 7, { holding: true }); // 进入渐近早期
+  advance(state, params, 4, { holding: true }); // 进入渐近早期（bias>0，尚未完成）
   const { t: tBefore, bias: biasBefore, dwell: dwellBefore } = state;
   assert.ok(biasBefore > 0, "已进入渐近（bias > 0）");
 
@@ -243,11 +255,12 @@ test("脱手不能刷落定进度：驻留累积中脱手，dwell 计时冻结�
   const state = makeReady("steady", SEEDS[0]);
   ask(state, cellByKey("三"));
   // 推进到收势驻留期：渐近已完成（bias=1）且落定驻留已累积过半（未到 dwellTime，尚未落定）
-  const hit = advanceUntil(state, params, { holding: true }, (s) => s.dwell >= 0.6, 25);
-  assert.ok(hit !== null, "25s 内应进入落定驻留累积");
+  const half = params.dwellTime / 2;
+  const hit = advanceUntil(state, params, { holding: true }, (s) => s.dwell >= half, 12);
+  assert.ok(hit !== null, "12s 内应进入落定驻留累积");
   assert.equal(state.bias, 1, "驻留累积时渐近应已完成");
   const { t: tBefore, dwell: dwellBefore } = state;
-  assert.ok(dwellBefore >= 0.6, `驻留应已累积过半（实测 ${dwellBefore.toFixed(2)}s / 需 ${params.dwellTime}s）`);
+  assert.ok(dwellBefore >= half, `驻留应已累积过半（实测 ${dwellBefore.toFixed(2)}s / 需 ${params.dwellTime}s）`);
 
   // 脱手 5s：落定驻留计时冻结、笔停驻
   advance(state, params, 5, { holding: false });
@@ -269,7 +282,7 @@ test("松手微抖：幅度参数定在 0.2–0.3u，脱手期笔仍可见地颤
   const params = paramsFor("steady");
   const state = makeReady("steady", SEEDS[0]);
   ask(state, cellByKey("是"));
-  advance(state, params, 7, { holding: true }); // 进入渐近后脱手
+  advance(state, params, 4, { holding: true }); // 进入渐近后脱手
   let prev = { ...state.pos };
   let path = 0;
   advance(state, params, 10, { holding: false }, (frames, s) => {
@@ -292,25 +305,25 @@ test("严格脱手判定：指尖距笔逾 strictRadius（默认 15u）即脱手
 });
 
 // ============ 迷走 ============
-test("迷走：无可落定目标时约 12s 进入迷走态并保持乱画", () => {
+test("迷走：无可落定目标时约 7s 进入迷走态并保持笔行（不停、不落定）", () => {
   const params = paramsFor("steady");
   const state = makeReady("steady", SEEDS[0]);
   assert.equal(ask(state, null), true); // 无目标 = 迷走
   assert.equal(state.stray, true);
 
   let strayedAt = null;
-  advance(state, params, 14, { holding: true }, (frames, s) => {
+  advance(state, params, 9, { holding: true }, (frames, s) => {
     if (s.phase === "strayed" && strayedAt === null) strayedAt = frames * DT;
   });
-  assert.ok(strayedAt !== null, "14s 内应进入迷走态");
-  assert.ok(strayedAt >= 11.9 && strayedAt <= 12.2, `迷走判定应约 12s（实测 ${strayedAt}s）`);
+  assert.ok(strayedAt !== null, "9s 内应进入迷走态");
+  assert.ok(strayedAt >= 6.9 && strayedAt <= 7.2, `迷走判定应约 ${params.strayTime}s（实测 ${strayedAt}s）`);
   assert.equal(state.answer.type, "stray");
 
-  // 迷走不是停笔：继续保持乱画（位置持续变化）
+  // 迷走不是停笔：笔继续行于纸上（位置持续变化）
   const posBefore = { ...state.pos };
   advance(state, params, 2, { holding: true });
   const moved = Math.hypot(state.pos.x - posBefore.x, state.pos.y - posBefore.y);
-  assert.ok(moved > 3, `迷走态应持续乱画（2s 位移 ${moved}u）`);
+  assert.ok(moved > 3, `迷走态应笔行不辍（2s 位移 ${moved}u）`);
   assert.equal(state.phase, "strayed");
 });
 
@@ -319,15 +332,15 @@ test("送仙：笔回纸心、停稳、距心小于容差，归寂后不再移�
   const params = paramsFor("steady");
   const state = makeReady("steady", SEEDS[0]);
   ask(state, cellByKey("三"));
-  assert.ok(runToSettled(state, params, 30) !== null);
+  assert.ok(runToSettled(state, params, 20) !== null);
 
   assert.equal(sendOff(state), true);
   assert.equal(state.phase, "sending");
   let returnedAt = null;
-  advance(state, params, 25, { holding: true }, (frames, s) => {
+  advance(state, params, 12, { holding: true }, (frames, s) => {
     if (s.phase === "returned" && returnedAt === null) returnedAt = frames * DT;
   });
-  assert.ok(returnedAt !== null, "送仙 25s 内应回位");
+  assert.ok(returnedAt !== null, "送仙 12s 内应回位");
   assert.ok(distToCenter(state.pos) < 3.5, `回位后距纸心应小于容差 3.5u（实测 ${distToCenter(state.pos)}u）`);
 
   // 归寂：回位后笔不再动（位置逐位不变）
@@ -335,6 +348,70 @@ test("送仙：笔回纸心、停稳、距心小于容差，归寂后不再移�
   advance(state, params, 2, { holding: true });
   advance(state, params, 2, { holding: false });
   assert.deepEqual(state.pos, posReturned, "returned 后笔应纹丝不动");
+});
+
+test("送仙三段是参数：改 sendoffWarm / sendoffApproach，回位时刻随之整体移动", () => {
+  // 旧实现把 0.8 / 5.5 / 2.5 写死在 step 里，节奏调不动、测试也覆写不了——这里锁参数真的接线了
+  const base = paramsFor("steady");
+  const returnAt = (over, seed) => {
+    const state = createDriftState({ rng: createRng(seed), personality: "steady" });
+    assert.equal(resumeForSendoff(state), true); // 借补行送仙取同一段规程，不必先问一问
+    let returnedAt = null;
+    advance(state, { ...base, ...over }, 20, { holding: true }, (frames, s) => {
+      if (s.phase === "returned" && returnedAt === null) returnedAt = frames * DT;
+    });
+    assert.ok(returnedAt !== null, `seed${seed}：20s 内应回位`);
+    return returnedAt;
+  };
+  for (const seed of SEEDS.slice(0, 3)) {
+    const [quick, normal, slow] = [returnAt({ sendoffApproach: 1.0 }, seed), returnAt({}, seed), returnAt({ sendoffApproach: 6.0 }, seed)];
+    assert.ok(slow - quick >= 2.5, `渐近 1.0s→6.0s 应把回位整体推后（实测 ${quick.toFixed(2)} → ${slow.toFixed(2)}s）`);
+    assert.ok(normal > quick && normal < slow, `默认 3.0s 应落在两者之间（实测 ${normal.toFixed(2)}s）`);
+    // 起手同理：warm +2.0s，回位至少跟着推后 1s（末段强收心会在途中追回一部分）
+    const warmSlow = returnAt({ sendoffWarm: base.sendoffWarm + 2 }, seed);
+    assert.ok(warmSlow - normal >= 1.0, `起手 +2.0s 应把回位推后（实测 ${normal.toFixed(2)} → ${warmSlow.toFixed(2)}s）`);
+  }
+});
+
+test("回位是停留式且有界：入圈后至多再等 3s（三趟停留），整程 ≤8s——不再等「恰好慢下来」那一帧", () => {
+  // 旧判据是单帧 speed<3u/s：实测最坏那局笔 6.8s 就已在纸心 0.7u，却在心口以 5–15u/s 抖到 13.5s
+  // 才碰上一帧够慢的——没有上界。改停留式后：入圈（bias=1 且距心 <3.5u）起累计，满 returnDwellTime
+  // 即回位；3s 的上界留给「入圈又被扰动顶出、累积清零重来」的那几帧。
+  for (const id of Object.keys(PERSONALITIES)) {
+    const params = paramsWithMood(id, "furious"); // 怒＝扰动最猛，回位最难的一组
+    for (const seed of TAIL_SEEDS) {
+      const state = createDriftState({ rng: createRng(seed), personality: id });
+      assert.equal(resumeForSendoff(state), true);
+      let entryAt = null, returnedAt = null;
+      advance(state, params, 20, { holding: true }, (frames, s) => {
+        const t = frames * DT;
+        if (entryAt === null && s.bias >= 1 && distToCenter(s.pos) < 3.5) entryAt = t;
+        if (s.phase === "returned" && returnedAt === null) returnedAt = t;
+      });
+      assert.ok(entryAt !== null, `${id}×seed${seed}：应先入纸心圈`);
+      assert.ok(returnedAt !== null, `${id}×seed${seed}：20s 内应回位`);
+      assert.ok(returnedAt - entryAt <= 3.0,
+        `${id}×seed${seed}：入圈后应至多再等 3s（实测 ${(returnedAt - entryAt).toFixed(2)}s；旧判据此值可达 6.7s）`);
+      // 8s 是「送仙三段 5.1s + 停留 1.0s」之外还留的余量：400 种子 × 九组实测最坏 7.87s（飘忽×怒），
+      // 旧判据在同一批种子上最坏 29.5s——有界本身就是这一轮要买的东西，别把界收得比实测还紧
+      assert.ok(returnedAt <= 8.0, `${id}×seed${seed}：整程回位 ${returnedAt.toFixed(1)}s 应 ≤8s（旧判据最坏 29.5s）`);
+    }
+  }
+});
+
+test("回位：停稳的即时快路径仍在——把停留上界拉到无穷，笔照样回位", () => {
+  // 停留式是**兜底**而非唯一判据：笔若已停稳（speed<3u/s），当帧即回位，不必等满 returnDwellTime。
+  // 把 returnDwellTime 拉到 1e6 便只剩快路径——仍能回位，即证明这一支没有被停留式吞掉。
+  // （实测快路径单跑：三档 40 种子下 4.12–9.10s，比停留式慢，故它只是「早停」而非主力。）
+  for (const id of Object.keys(PERSONALITIES)) {
+    for (const seed of TAIL_SEEDS.slice(0, 12)) {
+      const params = { ...paramsFor(id), returnDwellTime: 1e6 };
+      const state = createDriftState({ rng: createRng(seed), personality: id });
+      assert.equal(resumeForSendoff(state), true);
+      const frames = advanceUntil(state, params, { holding: true }, (s) => s.phase === "returned", 12);
+      assert.ok(frames !== null, `${id}×seed${seed}：无停留兜底时应靠停稳快路径回位`);
+    }
+  }
 });
 
 // ============ 补行送仙（仙未离去的补起） ============
@@ -351,10 +428,10 @@ test("补行送仙：仅 idle 可补，起笔落在蓄势环上、径直送回�
       "起笔须在纸面软边界内");
 
     let returnedAt = null;
-    advance(state, paramsFor("steady"), 25, { holding: true }, (frames, s) => {
+    advance(state, paramsFor("steady"), 12, { holding: true }, (frames, s) => {
       if (s.phase === "returned" && returnedAt === null) returnedAt = frames * DT;
     });
-    assert.ok(returnedAt !== null, "扶笔相送 25s 内应回位");
+    assert.ok(returnedAt !== null, "扶笔相送 12s 内应回位");
     assert.ok(distToCenter(state.pos) < 3.5, `回位后距纸心应小于容差 3.5u（实测 ${distToCenter(state.pos)}u）`);
   }
 });
@@ -382,10 +459,10 @@ test("补行送仙的守卫：非 idle 相位一律拒绝（不与正常送仙�
   assert.equal(resumeForSendoff(state), false, "ready 不可补（那是正常仪式的地界）");
   ask(state, cellByKey("是"));
   assert.equal(resumeForSendoff(state), false, "asking 中不可补");
-  assert.ok(runToSettled(state, paramsFor("steady"), 30) !== null);
+  assert.ok(runToSettled(state, paramsFor("steady"), 20) !== null);
   assert.equal(resumeForSendoff(state), false, "settled 后走正常 sendOff");
   assert.equal(sendOff(state), true);
-  advance(state, paramsFor("steady"), 25, { holding: true });
+  advance(state, paramsFor("steady"), 12, { holding: true });
   assert.equal(state.phase, "returned");
   assert.equal(resumeForSendoff(state), false, "returned 归寂后无事可补");
 });
@@ -396,7 +473,7 @@ test("同种子两次完整一问：落定帧、答案与终点笔位逐位一�
     const state = makeReady("erratic", SEEDS[1]); // 飘忽：噪声路径最长，最能暴露随机源泄漏
     ask(state, cellByKey("宋"));
     let settledAt = null;
-    advance(state, paramsFor("erratic"), 40, { holding: true }, (frames, s) => {
+    advance(state, paramsFor("erratic"), 15, { holding: true }, (frames, s) => {
       if (s.phase === "settled" && settledAt === null) settledAt = frames * DT;
     });
     return { settledAt, answer: state.answer, pos: { ...state.pos }, events: state.events.map((e) => e.msg) };
@@ -420,7 +497,7 @@ test("仪式状态机：各指令只在接受的相位生效", () => {
   assert.equal(state.phase, "ready");
   assert.equal(ask(state, cellByKey("是")), true);
   assert.equal(state.questionCount, 1);
-  assert.ok(runToSettled(state, paramsFor("steady"), 30) !== null);
+  assert.ok(runToSettled(state, paramsFor("steady"), 20) !== null);
   assert.equal(ask(state, cellByKey("否")), true, "settled 后可再问");
   assert.equal(state.questionCount, 2);
   assert.equal(sendOff(state), true, "asking 中可送仙");

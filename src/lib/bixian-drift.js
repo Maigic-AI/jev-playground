@@ -8,6 +8,9 @@
 //   低阻尼 damping ｜ 环行吸引子 ringK/ringR0（环心 OU 游走）｜ 双向 OU 噪声 noiseAmp/noiseTau
 //   蓄势 warmup + startRamp 慢起速 ｜ 渐近 approach（e=bias² 平滑）+ 收势 finalRadius + stillTime
 // 收势段是落定的充要条件：径向弹簧撑不住离心力，去掉末段减速螺旋，笔会永远在命中圈外打转。
+// 落定与回位都走这一支，且都是**停留式**判据；送仙三段（起手/渐近/收势）与回位停留时长
+// 已提为参数（sendoffWarm / sendoffApproach / sendoffTail / returnDwellTime），归寂（送仙期
+// 噪声随收势收敛）与收势强收也在 step 内，四处合起来才把「一问」与「回位」的耗时有界。
 
 export const PAPER = { w: 100, h: 160, center: { x: 50, y: 80 } };
 
@@ -54,15 +57,15 @@ export const DEFAULT_PARAMS = {
   noiseTau: 0.7, // 噪声相关时间 s（小=碎）
   wanderAmp: 9, // 环心游走幅度 u
   wanderTau: 5, // 环心游走时间尺度 s
-  startRamp: 3, // 起动慢：速度 25%→100% 的秒数
+  startRamp: 2, // 起动慢：速度 30%→100% 的秒数（见 step 的 speedScale）
   // 渐近答案曲线
-  warmup: 6, // 蓄势时长 s（无目的画圈）
-  approach: 8, // 渐近时长 s（逐渐偏向目标）
+  warmup: 2.5, // 蓄势时长 s（无目的画圈）
+  approach: 3.5, // 渐近时长 s（逐渐偏向目标）
   finalRadius: 5, // 渐近结束的收圈半径 u
-  stillTime: 3, // 收势时长 s（偏向完成后徐徐减速停笔）
+  stillTime: 2, // 收势时长 s（偏向完成后徐徐减速停笔）
   // 落定判定
   settleMode: "dwell", // 'dwell' 停留（正式版）| 'circles' 绕字（备选：对高噪声性格不可靠，不进正式玩法）
-  dwellTime: 1.2, // 停留判定秒
+  dwellTime: 1.0, // 停留判定秒
   settleRadius: 9, // 命中半径 u（必须大于收圈半径）
   circlesNeeded: 2, // 圈数判定（绕目标整圈数）
   // 扶笔
@@ -70,7 +73,12 @@ export const DEFAULT_PARAMS = {
   coupling: 0.9, // 共振增益：手指偏移→笔扰动力（u/s² per u）
   releaseJitter: true,
   releaseJitterAmp: 0.25, // 松手微抖幅度 u（原型 0.09 几乎不可见，正式版加大）
-  strayTime: 12, // 迷走判定秒
+  // 送仙与回位（三档同值：性格差异在轨迹与扰动上，送仙是同一套规程）
+  sendoffWarm: 0.6, // 送仙：起手到开始偏向纸心的秒数
+  sendoffApproach: 3.0, // 送仙：偏向纸心的渐近时长 s
+  sendoffTail: 1.5, // 送仙：收势时长 s（结束后噪声归零，笔自安静）
+  returnDwellTime: 1.0, // 回位判定：笔在纸心 3.5u 内停留满此秒数即回位（与落定同为停留式）
+  strayTime: 7, // 迷走判定秒
   summonTime: 6, // 请仙口诀时长 s
 };
 
@@ -79,11 +87,16 @@ export const PERSONALITIES = {
   steady: { name: "沉稳", overrides: {} },
   hasty: {
     name: "急躁",
-    overrides: { cruiseSpeed: 34, ringR0: 20, ringK: 4.2, damping: 0.22, noiseAmp: 5, wanderAmp: 6, startRamp: 1.5, warmup: 2.5, approach: 4.5, finalRadius: 4, dwellTime: 0.9 },
+    overrides: { cruiseSpeed: 34, ringR0: 20, ringK: 4.2, damping: 0.22, noiseAmp: 5, wanderAmp: 6, startRamp: 1.2, warmup: 1.5, approach: 2.5, finalRadius: 4, dwellTime: 0.8 },
   },
+  // 飘忽一档的扰动较原型下调（噪声 13→10、游走 15→12、环行弹簧 2.2→3.0）：与压缩后的
+  // 时间表同处一个量级，长尾才收得进 10s（详见 bixian-mood 的上界与 bixian-drift 的落定窗）。
+  // 渐近 4.5→4.0 是这套参数里最后削的一刀：400 种子 × 6 目标实测，4.5 时最坏 10.08s（0.2% 越 10s），
+  // 4.0 时最坏 9.62s 且中位只从 9.05 降到 8.60——仍是三档里最乱的一档：噪声/游走为沉稳的
+  // 1.4/1.3 倍、巡航最慢、落定最迟。
   erratic: {
     name: "飘忽",
-    overrides: { cruiseSpeed: 19, ringR0: 27, ringK: 2.2, damping: 0.08, noiseAmp: 13, noiseTau: 0.35, wanderAmp: 15, wanderTau: 3, startRamp: 4, warmup: 8, approach: 12, finalRadius: 7, dwellTime: 1.8 },
+    overrides: { cruiseSpeed: 19, ringR0: 27, ringK: 3.0, damping: 0.08, noiseAmp: 10, noiseTau: 0.35, wanderAmp: 12, wanderTau: 3, startRamp: 3, warmup: 3, approach: 4.0, finalRadius: 5, dwellTime: 1.2 },
   },
 };
 
@@ -110,7 +123,7 @@ export function createDriftState({ rng = Math.random, personality = "steady" } =
     pos: { ...PAPER.center }, vel: { x: 0, y: 0 },
     wander: { x: 0, y: 0 }, noise: { x: 0, y: 0 },
     bias: 0, target: null, blind: false, stray: false,
-    angleAcc: 0, circAng: 0, prevAng: null, prevAngT: null, dwell: 0,
+    angleAcc: 0, circAng: 0, prevAng: null, prevAngT: null, dwell: 0, retDwell: 0,
     answer: null, questionCount: 0, personality, rng,
     evSeq: 0,
     events: [],
@@ -135,7 +148,7 @@ export function ask(s, target, opts = {}) {
 
 export function sendOff(s) {
   if (["idle", "summoning", "sending", "returned"].includes(s.phase)) return false;
-  s.phase = "sending"; s.t = 0; s.bias = 0; s.dwell = 0; s.prevAng = null; s.prevAngT = null;
+  s.phase = "sending"; s.t = 0; s.bias = 0; s.dwell = 0; s.retDwell = 0; s.prevAng = null; s.prevAngT = null;
   s.target = { x: PAPER.center.x, y: PAPER.center.y, key: "_center", label: "纸心" };
   s.blind = false; s.stray = false; s.answer = null;
   ev(s, "送仙：笔向纸心回位"); return true;
@@ -203,6 +216,7 @@ export function step(s, dt, p, input) {
   ouStep(s.wander, p.wanderAmp, p.wanderTau, dt, s.rng);
   let c = { x: PAPER.center.x + s.wander.x, y: PAPER.center.y + s.wander.y };
   let R = p.ringR0;
+  let tail = 1; // 收势进度 1→0：偏向完成后徐徐减速、收圈到字心（落定与回位共用这一支）
   let speedScale = (s.phase === "ready" || s.phase === "strayed") ? 0.85 : 0.3 + 0.7 * clamp(s.t / p.startRamp, 0, 1);
 
   if (s.phase === "asking" || s.phase === "sending") {
@@ -211,13 +225,13 @@ export function step(s, dt, p, input) {
       s.bias = 0;
       if (s.t >= p.strayTime) { s.phase = "strayed"; s.answer = { type: "stray", label: "迷走" }; ev(s, "笔不肯落定——此问迷走"); return s; }
     } else {
-      const warm = s.phase === "sending" ? 0.8 : p.warmup;
-      const appr = s.phase === "sending" ? 5.5 : p.approach;
+      const isSending = s.phase === "sending";
+      const warm = isSending ? p.sendoffWarm : p.warmup;
+      const appr = isSending ? p.sendoffApproach : p.approach;
       s.bias = clamp((s.t - warm) / appr, 0, 1);
       const e = s.bias * s.bias * (3 - 2 * s.bias); // 先缓后急地偏向目标
       // 收势：偏向完成后徐徐减速、收圈到字心（否则弹簧撑不住离心力，永远在命中圈外打转）
-      let tail = 1;
-      if (s.bias >= 1) tail = Math.max(0, 1 - (s.t - warm - appr) / (s.phase === "sending" ? 2.5 : p.stillTime));
+      if (s.bias >= 1) tail = Math.max(0, 1 - (s.t - warm - appr) / (isSending ? p.sendoffTail : p.stillTime));
       // 圈数判定：保持最低巡航，让笔绕着字画圈凑满 N 周（停稳了角度就不再积累）
       if (p.settleMode === "circles" && s.phase === "asking") tail = Math.max(tail, 0.3);
       if (s.phase === "sending") speedScale *= 1 - 0.92 * e;
@@ -237,9 +251,14 @@ export function step(s, dt, p, input) {
   const dir = vt >= 0 ? 1 : -1;
   let ringK = p.ringK, ringDamp = p.ringDamp, drive = 2.2;
   if (s.phase === "sending" && s.bias >= 1) { ringK = 9; ringDamp = 3; drive = 0.8; } // 回位末段：强收心、停笔
+  // 收势强收（提问段）：偏向完成后弹簧随之变硬——同「回位末段」的思路，削的是
+  // 「已在命中圈内、却被扰动顶出去」的极端长尾（飘忽×怒最坏 10.9s→9.9s），
+  // 中位数不动、噪声质感不变（本档噪声大并不因这一项变小，只是收势时不许飘出去）
+  if (s.phase === "asking" && s.bias >= 1) { ringK *= 1 + 3 * (1 - tail); ringDamp *= 1 + 1.5 * (1 - tail); }
   const aRad = -ringK * (d - R) - ringDamp * vr;
   const aTan = (p.cruiseSpeed * speedScale * dir - vt) * drive;
-  ouStep(s.noise, p.noiseAmp, p.noiseTau, dt, s.rng);
+  // 归寂：送仙期的扰动随收势收敛到零——回位判据等的就是这一下（见下方回位判定的注释）
+  ouStep(s.noise, s.phase === "sending" ? p.noiseAmp * tail : p.noiseAmp, p.noiseTau, dt, s.rng);
   let ax = ux * aRad + tx * aTan + s.noise.x;
   let ay = uy * aRad + ty * aTan + s.noise.y;
 
@@ -275,9 +294,15 @@ export function step(s, dt, p, input) {
       s.dwell = Math.max(0, s.dwell - dt * 0.6); // 离圈则驻留缓退
     }
   }
-  // 回位判定
-  if (s.phase === "sending" && s.bias >= 1 && dist(s.pos, s.target) < 3.5 && Math.hypot(s.vel.x, s.vel.y) < 3) {
-    s.phase = "returned"; ev(s, "笔回位，仙已送走");
+  // 回位判定（停留式，与落定判定同族）：笔在纸心 3.5u 内停留满 returnDwellTime 即回位。
+  // 只看瞬时速度（<3u/s）是「等一帧恰好慢下来」——实测最坏那局笔 7–8s 就已在纸心 0.7–3u，
+  // 却在心口以 5–15u/s 抖动十几秒才碰上那一帧，没有上界。故速度只作即时快路径，停留时长兜底。
+  if (s.phase === "sending") {
+    const settledEnough = s.bias >= 1 && dist(s.pos, s.target) < 3.5; // 已在纸心圈内（回位判定的前提）
+    s.retDwell = settledEnough ? s.retDwell + dt : 0;
+    if (settledEnough && (Math.hypot(s.vel.x, s.vel.y) < 3 || s.retDwell >= p.returnDwellTime)) {
+      s.phase = "returned"; ev(s, "笔回位，仙已送走");
+    }
   }
   return s;
 }
