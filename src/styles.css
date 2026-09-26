@@ -329,8 +329,23 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(255,79,111,.
 .bx-ask input { background: #0f0c07; border: 1px solid var(--bx-line); border-radius: 13px; color: #ecdfbf; padding: 14px 16px; font-size: 15px; font-family: inherit; }
 .bx-ask input:focus { outline: none; border-color: var(--bx-amber); box-shadow: 0 0 12px rgba(240,190,100,.15); }
 .bx-ask-row { display: flex; gap: 10px; flex-wrap: wrap; }
-.bx-log { margin-top: 16px; border-top: 1px dashed var(--bx-line); padding-top: 12px; display: grid; gap: 8px; }
+.bx-log { background: var(--bx-panel); border: 1px dashed var(--bx-line); border-radius: 14px; padding: 4px 16px 14px; }
+.bx-log summary { cursor: pointer; list-style: none; display: flex; align-items: center; padding: 11px 0; color: var(--bx-amber); font-weight: 900; font-size: 12px; letter-spacing: .18em; }
+.bx-log summary::-webkit-details-marker { display: none; }
+.bx-log summary::after { content: "▸"; margin-left: auto; color: var(--bx-dim); transition: rotate .18s ease; }
+.bx-log[open] summary::after { rotate: 90deg; }
+.bx-log[open] summary { border-bottom: 1px dashed var(--bx-line); }
+.bx-log[open] > div { margin-top: 10px; }
 .bx-log > div { display: grid; grid-template-columns: 34px 1fr auto; gap: 10px; align-items: baseline; font-size: 13px; }
+.bx-linger { border: 1px dashed var(--bx-amber); border-radius: 14px; padding: 14px 16px; margin: 4px 0 12px; background: rgba(201,162,102,.06); }
+.bx-linger strong { display: block; color: var(--bx-amber-bright); font-size: 15px; letter-spacing: .14em; margin-bottom: 6px; }
+.bx-linger p { margin: 0 0 12px; font-size: 13px; line-height: 1.8; color: #d8caa6; }
+.bx-science { border: 1px solid var(--bx-line); border-radius: 14px; padding: 4px 16px 12px; margin: 4px 0 12px; background: #100c07; }
+.bx-science summary { cursor: pointer; list-style: none; padding: 11px 0; color: var(--bx-amber); font-weight: 900; font-size: 12px; letter-spacing: .18em; }
+.bx-science summary::-webkit-details-marker { display: none; }
+.bx-science summary::after { content: "▸"; margin-left: 10px; color: var(--bx-dim); }
+.bx-science[open] summary::after { content: "▾"; }
+.bx-science p { font-size: 13px; line-height: 1.9; color: #c4b48d; margin: 4px 0 10px; }
 .bx-log span { color: var(--bx-amber); font-weight: 900; font-size: 11px; }
 .bx-log em { font-style: normal; color: #d8caa6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bx-log b { color: var(--bx-amber-bright); font-size: 16px; }

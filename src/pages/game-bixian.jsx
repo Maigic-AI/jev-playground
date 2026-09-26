@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
-  PAPER, createRng, createDriftState, summon, ask, sendOff, step, slippedLoose,
+  PAPER, createRng, createDriftState, summon, ask, sendOff, resumeForSendoff, step, slippedLoose,
 } from "../lib/bixian-drift.js";
+import { markLingering, clearLingering, hasLingering } from "../lib/bixian-linger.js";
 import { CELLS, VERIFY_CELL } from "../lib/bixian-board.js";
 import { createTrail, pruneTrail, trailSample, trailBuckets } from "../lib/bixian-trail.js";
 import {
@@ -21,6 +22,16 @@ const STILL_PHASES = new Set(["idle", "returned", "settled"]); // 笔迹沥干�
 const CN_NUM = ["一", "二", "三", "四", "五"];
 const SPIRIT_DRY = new Set(["quota", "exhausted"]); // 仙力竭尽的两种来路：429 实测 / 配额预判
 const SLIP_HINT = "离笔过远，笔已脱手——指尖按在笔近处（随笔而行）续扶"; // 严格式脱手提示（问询/纸面下共用）
+// 仙未离去警示：记号在任何「非回位离场」时都会打——请仙途中、验笔途中亦算，
+// 故措辞不可称「问毕」（那只是其中一种来路），只陈「未及送仙、笔未回位」这一个事实
+const LINGER_TITLE = "仙未离去";
+const LINGER_NOTE = "前番请仙，未及送仙、笔未回位，仙仍在此。礼当补行送仙，送毕方安。";
+// 局终科普（调研报告 §3 观念运动效应；措辞分寸依 §5.2：陈其理、不吓人）
+const SCIENCE_TITLE = "笔为何自走 · 观念运动之说";
+const SCIENCE_PARAS = [
+  "请仙之戏里「笔自己动」的现象，百余年来早有探究，今称「观念运动效应」：心中存着所盼之答，手上便生出极微而不自知的用力，笔随笔主的心念偏移。一八五二年英国学者卡彭特为此定名，其后法拉第等人反复检验——诚实的人，也会无意识地做出与自己期望一致的动作。",
+  "传统玩法要求悬腕无撑、纸面光滑、笔尖一点着纸：此般条件下执笔诸力彼此相推，画圈几乎必然。所见答案，多半出自问者自己的期许与暗知；亦有实验见问者以此道答出了自己未曾意识到的知识。仙灵之说，姑妄听之。",
+];
 const VIBE_OK = typeof navigator !== "undefined" && "vibrate" in navigator; // API 在场才试震；脉冲环始终伴发（桌面 Chrome 空有 API 不震，也走补偿）
 const STAGE_BADGE = {
   entrance: "归寂", summoning: "请仙", verify: "验笔", inquiry: "问询", divining: "问询", sendoff: "送仙", returned: "回位",
@@ -65,6 +76,8 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
   const [input, setInput] = useState("");
   const [flash, setFlash] = useState(null); // 落定/回位反馈条
   const [fateNote, setFateNote] = useState(null); // 上问失准提示：{ q, reason }，可重问
+  const [logOpen, setLogOpen] = useState(false); // 问事录折叠面：新答自动展开，随手可收（问询全相位可回看）
+  const [lingering, setLingering] = useState(() => hasLingering()); // 仙未离去：挂载时读一次会话记号（前番未回位离场）
   const [, setTick] = useState(0); // 帧驱动重绘
 
   const engine = engineRef.current;
@@ -72,7 +85,10 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
   const askedCount = questions.filter((item) => item.kind === "ask").length;
   // 问事录口径：验笔是仪式脚本不入录；迷走也是一问（只是不占问数）
   const isAskedEntry = (item) => item.kind !== "verify";
-  const hasInquired = questions.some(isAskedEntry);
+  const logEntries = questions.filter(isAskedEntry); // 问事录全量（摘要计数与逐行回看共用，只筛一次）
+  const hasInquired = logEntries.length > 0;
+  // 问事录在场范围：问询全相位（请示/笔行/待问）皆可展开回看；验笔是礼不入录、送仙一起便收
+  const askingPhase = stage === "inquiry" || stage === "divining" || (stage === "drift" && driftKindRef.current === "ask");
 
   function flashOnce(label) {
     setFlash({ label });
@@ -157,6 +173,7 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
           ? { q: "你是笔仙吗？", answer: answer.label, kind: "verify" }
           : { q: lastQuestionRef.current, answer: answer.label, kind: "ask", via: verdictRef.current?.source ?? "spirit" },
       ]);
+      if (!verifying) setLogOpen(true); // 新答入录即展开问事录（验笔是礼，不动问事录）
       if (fate) setFateNote({ q: lastQuestionRef.current, reason: verdictRef.current.reason ?? "call" });
       setStage("inquiry");
       return;
@@ -166,12 +183,16 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
       flashOnce(cause === "taboo" ? "触怒笔仙——扰动骤升，笔怒而迷走" : "此问越界——笔势转躁，笔自迷走");
       spawnPulse(); // 迷走一圈脉冲（纯视觉，减弱动效下不发）
       setQuestions((list) => [...list, { q: lastQuestionRef.current, answer: "迷走", kind: "stray", cause }]);
+      setLogOpen(true); // 迷走也是一答，入录即展开
       setStage("inquiry");
       return;
     }
     if (nextPhase === "returned") {
       flashOnce("笔回位，仙已送走");
       spawnPulse(true); // 回位一环静环收束
+      setQuestions([]); // 送仙即焚：回位完成即清问事录，不留一痕（重开新局自然空白）
+      clearLingering(); // 仙已离去：会话级「仙未离去」记号即消
+      setLingering(false);
       setStage("returned");
     }
   };
@@ -225,11 +246,11 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
 
   // —— 仪式指令 ——
 
-  function beginSummon() {
+  // 建新引擎并清尽上一局的局内态（请仙与补行送仙共用；问事录只存内存，随建随空）
+  function prepareEngine() {
     clearTimeout(flashTimerRef.current);
     const seed = ((Date.now() & 0xffff) ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
     const next = createDriftState({ rng: createRng(seed), personality: PERSONALITY });
-    summon(next);
     engineRef.current = next;
     trailRef.current = createTrail();
     driftKindRef.current = null;
@@ -246,7 +267,24 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
     setFateNote(null);
     setSlipNote(false);
     setPulses([]);
+    setLogOpen(false);
+    return next;
+  }
+
+  function beginSummon() {
+    const next = prepareEngine();
+    summon(next);
     setStage("summoning");
+  }
+
+  // 补行送仙（仙未离去）：前番未回位，重进后不念请仙口诀，笔自纸面一处径直送回纸心，补完未竟之礼。
+  // 已知取舍：记号只存「仙还在」这一个事实（spec 禁落盘），笔位、问事录、笔势、同问缓存一概无从复原，
+  // 故此补礼必从一副新引擎起步——笔势归静、缓存重置。仪式礼数补全了，但严格说已非原局，仅供补礼、勿作续局。
+  function resumeSendOff() {
+    const next = prepareEngine();
+    resumeForSendoff(next);
+    driftKindRef.current = "send";
+    setStage("sendoff");
   }
 
   function castVerify() {
@@ -350,6 +388,21 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
     return () => mq.removeEventListener("change", onChange);
   }, []);
 
+  // —— 仙未离去：未回位而离场（回大厅/刷新/关页）留会话级记号，重进警示；回位即消（见 handlePhase）——
+  useEffect(() => {
+    const spiritPresent = () => {
+      const current = engineRef.current;
+      return !!current && current.phase !== "returned";
+    };
+    const mark = () => { if (spiritPresent()) markLingering(); };
+    const onPageHide = () => mark(); // 刷新/关页不一定走 React 卸载，pagehide 兜底
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      mark(); // 回大厅等站内离场：卸载时留记号
+    };
+  }, []);
+
   // —— 纸面渲染 ——
 
   const pos = engine ? engine.pos : PAPER.center;
@@ -422,8 +475,18 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
                 <h2>夜静更深，铺纸请仙</h2>
                 <p>一局之礼：请仙 → 验笔 → 问询 → 送仙 → 回位。至多五问，问毕必送，送必至回位。</p>
                 <p>扶笔之法：指尖按在笔旁、随笔而行，离笔过远即脱手（易用可切宽松式：按住纸面即扶）；笔行于纸，不由人引。</p>
+                {lingering ? (
+                  // 仙未离去：唯一去路是补行送仙——送仙必须完成（CONTEXT.md 送仙），
+                  // 故不设「另起一局」逃生口，免得新局回位反把旧仙的警示抹掉
+                  <div className="bx-linger">
+                    <strong>{LINGER_TITLE}</strong>
+                    <p>{LINGER_NOTE}</p>
+                    <button className="bx-primary" onClick={resumeSendOff}>补行送仙 🕯️</button>
+                  </div>
+                ) : (
+                  <button className="bx-primary" onClick={beginSummon}>点烛请仙 🕯️</button>
+                )}
                 <p className="bx-dim">戏中之事，纯属娱乐。</p>
-                <button className="bx-primary" onClick={beginSummon}>点烛请仙 🕯️</button>
               </div>
             )}
             {stage === "summoning" && (
@@ -490,21 +553,6 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
                     </div>
                   </div>
                 )}
-                {questions.some(isAskedEntry) && (
-                  <div className="bx-log">
-                    {(() => {
-                      let askSeq = 0; // 问数只数 ask（迷走不占问数），故编号必在 CN_NUM 界内
-                      return questions.filter(isAskedEntry).map((item, index) => (
-                        <div key={`${index}-${item.q}`}>
-                          <span>{item.kind === "ask" ? `问${CN_NUM[askSeq++]}` : item.cause === "taboo" ? "怒" : "越"}</span><em>{item.q}</em>
-                          <b className={item.kind === "stray" || item.via === "fate" ? "bx-off" : ""}>
-                            {item.answer}{item.via === "fate" ? "·天意" : ""}
-                          </b>
-                        </div>
-                      ));
-                    })()}
-                  </div>
-                )}
               </div>
             )}
             {stage === "sendoff" && (
@@ -519,11 +567,33 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
                 <span className="bx-kicker">回位 · 归寂</span>
                 <p className="bx-chant">仙已送回，纸面归寂。</p>
                 <p className="bx-dim">笔迹与问事随烟而散，不留于纸。</p>
+                <details className="bx-science">
+                  <summary>{SCIENCE_TITLE}</summary>
+                  {SCIENCE_PARAS.map((para) => <p key={para}>{para}</p>)}
+                </details>
+                <p className="bx-dim">本游戏纯属娱乐，纸面之事，不问吉凶。</p>
                 <div className="bx-ask-row">
                   <button className="bx-primary" onClick={beginSummon}>再请一局</button>
                   <button className="bx-ghost" onClick={onExit}>回大厅</button>
                 </div>
               </div>
+            )}
+            {askingPhase && hasInquired && (
+              // 问事录（仅内存态）：问询全相位可展开回看，新答自动展开；送仙一起即收、回位即焚
+              <details className="bx-log" open={logOpen} onToggle={(event) => setLogOpen(event.currentTarget.open)}>
+                <summary>问事录 · 已问 {logEntries.length} 则</summary>
+                {(() => {
+                  let askSeq = 0; // 问数只数 ask（迷走不占问数），故编号必在 CN_NUM 界内
+                  return logEntries.map((item, index) => (
+                    <div key={`${index}-${item.q}`}>
+                      <span>{item.kind === "ask" ? `问${CN_NUM[askSeq++]}` : item.cause === "taboo" ? "怒" : "越"}</span><em>{item.q}</em>
+                      <b className={item.kind === "stray" || item.via === "fate" ? "bx-off" : ""}>
+                        {item.answer}{item.via === "fate" ? "·天意" : ""}
+                      </b>
+                    </div>
+                  ));
+                })()}
+              </details>
             )}
             <div className="bx-toggles">
               <span className="bx-kicker">扶笔与扰动</span>

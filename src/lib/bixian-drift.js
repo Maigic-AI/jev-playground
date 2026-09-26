@@ -132,6 +132,20 @@ export function sendOff(s) {
   ev(s, "送仙：笔向纸心回位"); return true;
 }
 
+// 补行送仙（spec #6 仙未离去）：上一局未回位、仙未离去，重进页面后从送仙直接补起。
+// 笔位无从复原（问事录与会话都不落盘，只记得「仙还在」这一个事实），就从蓄势环上
+// 随机一处起步（走注入的 RNG，种子化可复现），跳过请仙口诀径直送回纸心。
+export function resumeForSendoff(s) {
+  if (s.phase !== "idle") return false;
+  const ang = s.rng() * 2 * Math.PI;
+  s.pos.x = PAPER.center.x + Math.cos(ang) * DEFAULT_PARAMS.ringR0;
+  s.pos.y = PAPER.center.y + Math.sin(ang) * DEFAULT_PARAMS.ringR0;
+  s.vel.x = 0; s.vel.y = 0;
+  s.phase = "ready"; // 仙本就在，无需再请：只借 ready 作送仙的合法起点
+  ev(s, "补行送仙：仙未离去，自纸面一处径送回位");
+  return sendOff(s);
+}
+
 // input: { holding, mode: 'strict'|'loose', pointer: {x,y}|null }
 
 // 严格扶笔的脱手判定：指尖（纸面坐标）距笔超过 strictRadius 即脱手。恰在半径上不算脱——须「超过」。

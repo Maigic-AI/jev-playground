@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   PAPER, DEFAULT_PARAMS, PERSONALITIES, paramsFor, createRng,
-  createDriftState, summon, ask, sendOff, step, slippedLoose,
+  createDriftState, summon, ask, sendOff, resumeForSendoff, step, slippedLoose,
 } from "../src/lib/bixian-drift.js";
 import { CELLS, cellByKey } from "../src/lib/bixian-board.js";
 
@@ -295,6 +295,41 @@ test("送仙：笔回纸心、停稳、距心小于容差，归寂后不再移�
   advance(state, params, 2, { holding: true });
   advance(state, params, 2, { holding: false });
   assert.deepEqual(state.pos, posReturned, "returned 后笔应纹丝不动");
+});
+
+// ============ 补行送仙（仙未离去的补起） ============
+test("补行送仙：仅 idle 可补，起笔落在蓄势环上、径直送回纸心", () => {
+  for (const seed of SEEDS) {
+    const state = createDriftState({ rng: createRng(seed), personality: "steady" });
+    assert.equal(state.phase, "idle");
+    assert.equal(resumeForSendoff(state), true, "新页补礼：仙本就在，无需再请");
+    assert.equal(state.phase, "sending");
+    const r = distToCenter(state.pos);
+    assert.ok(r > DEFAULT_PARAMS.ringR0 * 0.8 && r < DEFAULT_PARAMS.ringR0 * 1.2,
+      `起笔应在蓄势环一带（距心 ${r.toFixed(1)}u / 环半径 ${DEFAULT_PARAMS.ringR0}u）`);
+    assert.ok(state.pos.x > 6 && state.pos.x < PAPER.w - 6 && state.pos.y > 8 && state.pos.y < PAPER.h - 8,
+      "起笔须在纸面软边界内");
+
+    let returnedAt = null;
+    advance(state, paramsFor("steady"), 25, { holding: true }, (frames, s) => {
+      if (s.phase === "returned" && returnedAt === null) returnedAt = frames * DT;
+    });
+    assert.ok(returnedAt !== null, "扶笔相送 25s 内应回位");
+    assert.ok(distToCenter(state.pos) < 3.5, `回位后距纸心应小于容差 3.5u（实测 ${distToCenter(state.pos)}u）`);
+  }
+});
+
+test("补行送仙的守卫：非 idle 相位一律拒绝（不与正常送仙串道）", () => {
+  const state = makeReady("steady", SEEDS[0]);
+  assert.equal(resumeForSendoff(state), false, "ready 不可补（那是正常仪式的地界）");
+  ask(state, cellByKey("是"));
+  assert.equal(resumeForSendoff(state), false, "asking 中不可补");
+  assert.ok(runToSettled(state, paramsFor("steady"), 30) !== null);
+  assert.equal(resumeForSendoff(state), false, "settled 后走正常 sendOff");
+  assert.equal(sendOff(state), true);
+  advance(state, paramsFor("steady"), 25, { holding: true });
+  assert.equal(state.phase, "returned");
+  assert.equal(resumeForSendoff(state), false, "returned 归寂后无事可补");
 });
 
 // ============ 固定种子确定性 ============
