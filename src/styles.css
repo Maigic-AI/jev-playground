@@ -268,3 +268,77 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(255,79,111,.
   .rps-moves { grid-template-columns: repeat(3, 1fr); }
   .rps-stats-bar { grid-template-columns: 34px 1fr 74px; }
 }
+
+/* ---- game room: 笔仙 (bixian) —— 暗色灵异岛，一切样式 scope 在 .bx-scene 内、局部变量不出岛 ---- */
+.rps-feature.bx-feature { background: #14100a; border-color: #14100a; box-shadow: 6px 6px 0 #40351f; }
+.rps-feature.bx-feature h3, .rps-feature.bx-feature p { color: #ecdfbf; }
+.rps-feature.bx-feature .card-number { border-color: #8d7c55; color: #d9c79c; }
+.rps-feature.bx-feature .card-actions { border-top-color: #40351f; }
+.bx-page { padding: 38px 0 70px; }
+.bx-scene {
+  --bx-amber: #c9a266; --bx-amber-bright: #f0cf8e; --bx-ink-text: #cbb98f; --bx-paper: #191309;
+  --bx-panel: #141009; --bx-line: #2c2314; --bx-dim: #8f7f5c;
+  background: #0d0a06; border: 1px solid var(--bx-line); border-radius: 28px; padding: 22px;
+  color: #e8dcc0; position: relative; overflow: hidden;
+}
+.bx-scene::before { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 8%, rgba(240,190,100,.10), transparent 55%); pointer-events: none; }
+.bx-head { display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 14px; }
+.bx-head strong { font-size: 20px; letter-spacing: .02em; display: block; }
+.bx-head span { color: var(--bx-dim); font-size: 12px; display: block; margin-top: 3px; }
+.bx-back { width: 40px; height: 40px; border: 1px solid var(--bx-line); border-radius: 50%; background: var(--bx-panel); color: #e8dcc0; font-size: 24px; cursor: pointer; }
+.bx-back:hover { border-color: var(--bx-amber); }
+.bx-badge { font-size: 12px; font-weight: 900; letter-spacing: .3em; color: var(--bx-amber-bright); border: 1px solid var(--bx-line); border-radius: 999px; padding: 8px 10px 8px 14px; }
+.bx-body { display: grid; grid-template-columns: minmax(0, 400px) 1fr; gap: 22px; margin-top: 20px; align-items: start; }
+.bx-paper-wrap { position: relative; border-radius: 18px; overflow: hidden; }
+.bx-paper { width: 100%; height: auto; display: block; background: var(--bx-paper); }
+.bx-paper-wrap::after { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 30%, rgba(255,196,96,.13), rgba(0,0,0,.42) 78%); pointer-events: none; animation: bx-candle 4.2s ease-in-out infinite; }
+@keyframes bx-candle { 0%,100% { opacity: 1; } 40% { opacity: .82; } 62% { opacity: .93; } 78% { opacity: .86; } }
+.bx-cell { fill: var(--bx-ink-text); font-size: 6px; font-family: "Kaiti SC", "STKaiti", KaiTi, "FZKai-Z03S", serif; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.bx-cell.lit { fill: var(--bx-amber-bright); filter: drop-shadow(0 0 2.5px rgba(240,190,100,.9)); animation: bx-cell-pulse 1.6s ease-in-out infinite; }
+@keyframes bx-cell-pulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+.bx-settle-ring { fill: none; stroke: var(--bx-amber); stroke-width: .7; stroke-dasharray: 3 2.4; opacity: .85; animation: bx-ring 1.6s ease-in-out infinite; pointer-events: none; }
+@keyframes bx-ring { 0%,100% { opacity: .85; } 50% { opacity: .25; } }
+.bx-ink { fill: none; stroke: #b7a173; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.bx-pen { pointer-events: none; }
+.bx-pen.resting { opacity: .5; }
+.bx-pen-shadow { fill: #000; opacity: .5; }
+.bx-pen-tip { fill: #16100a; }
+.bx-pen-ferrule { fill: #6f5836; }
+.bx-pen-body { stroke: #1c150c; stroke-width: .3; }
+.bx-hold { fill: transparent; cursor: grab; touch-action: none; }
+.bx-hold:active { cursor: grabbing; }
+.bx-hold.inert { pointer-events: none; }
+.bx-flash { position: absolute; left: 50%; top: 14px; translate: -50% 0; background: rgba(18,12,6,.92); border: 1px solid var(--bx-amber); color: var(--bx-amber-bright); border-radius: 999px; padding: 9px 20px; font-weight: 900; font-size: 14px; letter-spacing: .06em; box-shadow: 0 0 18px rgba(240,190,100,.25); animation: bx-flash-in .45s ease both; pointer-events: none; white-space: nowrap; }
+@keyframes bx-flash-in { from { opacity: 0; transform: translateY(10px); } }
+.bx-panel { display: grid; gap: 14px; }
+.bx-card { background: var(--bx-panel); border: 1px solid var(--bx-line); border-radius: 18px; padding: 22px; }
+.bx-kicker { display: inline-block; font-size: 11px; font-weight: 900; letter-spacing: .22em; color: var(--bx-amber); border: 1px solid var(--bx-line); border-radius: 999px; padding: 6px 12px; }
+.bx-card h2 { font-size: 26px; letter-spacing: .02em; margin: 16px 0 10px; color: #f2e6c8; }
+.bx-card p { line-height: 1.9; margin: 0 0 10px; }
+.bx-card > .bx-primary { margin-top: 10px; }
+.bx-chant { font-family: "Kaiti SC", "STKaiti", KaiTi, "FZKai-Z03S", serif; font-size: 19px; line-height: 2; color: #f2e6c8; }
+.bx-dim { color: var(--bx-dim); font-size: 13px; }
+.bx-progress { height: 6px; background: #241c10; border-radius: 999px; overflow: hidden; margin: 14px 0 12px; }
+.bx-progress div { height: 100%; background: linear-gradient(90deg, #8a6b3f, var(--bx-amber-bright)); border-radius: inherit; }
+.bx-primary { border: 1px solid var(--bx-amber); background: linear-gradient(180deg, #d9b271, #b08c4d); color: #1c130a; border-radius: 999px; padding: 13px 22px; font-weight: 900; font-size: 14px; cursor: pointer; box-shadow: 0 0 16px rgba(240,190,100,.18); }
+.bx-primary:hover:not(:disabled) { filter: brightness(1.08); }
+.bx-primary:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; }
+.bx-ghost { border: 1px solid var(--bx-line); background: transparent; color: #cbbb92; border-radius: 999px; padding: 13px 20px; font-weight: 800; font-size: 13px; cursor: pointer; }
+.bx-ghost:hover { border-color: var(--bx-amber); color: var(--bx-amber-bright); }
+.bx-ask { display: grid; gap: 12px; }
+.bx-ask input { background: #0f0c07; border: 1px solid var(--bx-line); border-radius: 13px; color: #ecdfbf; padding: 14px 16px; font-size: 15px; font-family: inherit; }
+.bx-ask input:focus { outline: none; border-color: var(--bx-amber); box-shadow: 0 0 12px rgba(240,190,100,.15); }
+.bx-ask-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.bx-log { margin-top: 16px; border-top: 1px dashed var(--bx-line); padding-top: 12px; display: grid; gap: 8px; }
+.bx-log > div { display: grid; grid-template-columns: 34px 1fr auto; gap: 10px; align-items: baseline; font-size: 13px; }
+.bx-log span { color: var(--bx-amber); font-weight: 900; font-size: 11px; }
+.bx-log em { font-style: normal; color: #d8caa6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bx-log b { color: var(--bx-amber-bright); font-size: 16px; }
+.bx-hint { margin-top: 16px; text-align: center; color: var(--bx-dim); font-size: 12px; letter-spacing: .1em; animation: bx-hint-blink 1.8s ease-in-out infinite; }
+@keyframes bx-hint-blink { 0%,100% { opacity: .9; } 50% { opacity: .35; } }
+
+/* ---- 笔仙 responsive ---- */
+@media (max-width: 880px) {
+  .bx-body { grid-template-columns: 1fr; }
+  .bx-paper-wrap { max-width: 400px; margin: 0 auto; width: 100%; }
+}

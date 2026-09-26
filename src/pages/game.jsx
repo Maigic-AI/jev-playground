@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import RpsGame from "./game-rps.jsx";
+import BixianGame from "./game-bixian.jsx";
 import { CONFIGS, MOVE_CN } from "../lib/rps.js";
 import { readRpsStats, resetRpsStats } from "../lib/rps-stats.js";
 
@@ -52,6 +53,18 @@ export default function GameHome({ navigate, apiKey, onKey, quota, onQuota }) {
     );
   }
 
+  if (view === "bixian") {
+    return (
+      <BixianGame
+        apiKey={apiKey}
+        onKey={onKey}
+        quota={quota}
+        onQuota={onQuota}
+        onExit={() => setView("hub")}
+      />
+    );
+  }
+
   return (
     <main>
       <section className="hero wrap">
@@ -74,7 +87,7 @@ export default function GameHome({ navigate, apiKey, onKey, quota, onQuota }) {
       <section className="wrap section-block">
         <div className="section-heading">
           <div><span className="eyebrow">NOW PLAYING</span><h2>正在开放</h2></div>
-          <span className="count-pill">1 个游戏</span>
+          <span className="count-pill">2 个游戏</span>
         </div>
         <article className="rps-feature lime">
           <div className="card-top"><span className="card-number">RPS</span><span className="card-emoji">✌️</span></div>
@@ -88,6 +101,16 @@ export default function GameHome({ navigate, apiKey, onKey, quota, onQuota }) {
           <div className="card-actions">
             <button className="auto-action" onClick={() => { setMode("human"); setView("rps"); }}>人机对战 <span>✊</span></button>
             <button className="manual-action" onClick={() => { setMode("sim"); setView("rps"); }}>Jev 对 Jev</button>
+          </div>
+        </article>
+        <article className="rps-feature bx-feature" style={{ marginTop: "20px" }}>
+          <div className="card-top"><span className="card-number">BXIAN</span><span className="card-emoji">🕯️</span></div>
+          <div>
+            <h3>笔仙 · 请仙问答</h3>
+            <p>铺纸、点烛、请仙——完整的传统仪式：验笔以确认仙至，问询以落笔求答，送仙以回位归寂。笔自漂移，扶而不引，至多五问，问毕必送。</p>
+          </div>
+          <div className="card-actions">
+            <button className="auto-action" onClick={() => setView("bixian")}>入局请仙 <span>🖌️</span></button>
           </div>
         </article>
       </section>

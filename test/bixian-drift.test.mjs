@@ -4,20 +4,10 @@ import {
   PAPER, DEFAULT_PARAMS, PERSONALITIES, paramsFor, createRng,
   createDriftState, summon, ask, sendOff, step,
 } from "../src/lib/bixian-drift.js";
+import { CELLS, cellByKey } from "../src/lib/bixian-board.js";
 
-// —— 纸面字位（A 边条式，spec 定案：顶边勾-是-否-叉，左右列一~五/六~十，底边男唐宋元明清女）——
-// 逻辑坐标 100×160，与原型验证时的边条位置一致；引擎本身对布局无感知，这里只是测试夹具。
-// 布局正式定稿属后续布局/UI 票：若彼处调整字位，下方落定矩阵的耗时窗需连带重新校准。
-const CELLS = [
-  { key: "勾", label: "勾", x: 14, y: 13 },
-  { key: "是", label: "是", x: 37, y: 13 },
-  { key: "否", label: "否", x: 63, y: 13 },
-  { key: "叉", label: "叉", x: 86, y: 13 },
-  ..."一二三四五".split("").map((ch, i) => ({ key: ch, label: ch, x: 12, y: 42 + i * 22.5 })),
-  ..."六七八九十".split("").map((ch, i) => ({ key: ch, label: ch, x: 88, y: 42 + i * 22.5 })),
-  ...["男", "唐", "宋", "元", "明", "清", "女"].map((ch, i) => ({ key: ch, label: ch, x: 12 + i * 12.67, y: 147 })),
-];
-const cellByKey = (key) => CELLS.find((cell) => cell.key === key);
+// —— 纸面字位（A 边条式）与 cellByKey 自 bixian-board 库导入：引擎对布局无感知，这里只是落定矩阵的目标夹具。
+// 字位若在布局/UI 层调整，下方落定矩阵的耗时窗需连带重新校准（board 库测试已锁定锚点坐标）。
 
 const DT = 1 / 60; // 帧驱动由调用方提供：无头快进用 60fps
 const SEEDS = [20260924, 42, 7, 99];
