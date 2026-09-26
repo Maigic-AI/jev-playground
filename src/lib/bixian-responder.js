@@ -154,13 +154,37 @@ export async function adjudicate(responder, question, { call, rng = Math.random,
 }
 
 // —— 笔势（mood）：问审越界转躁、禁忌触怒扰动升档；随局持续，回位/再请一局才归静。
-// 躁直接用急躁性格包做表现；怒在躁上改挂飘忽包的扰动参数（单一来源，数值均随 #2 落定矩阵验证过）。
-const { noiseAmp, noiseTau, wanderAmp } = paramsFor("erratic");
-export const MOOD_PARAMS = {
-  calm: paramsFor("steady"),
-  restless: paramsFor("hasty"),
-  furious: { ...paramsFor("hasty"), noiseAmp, noiseTau, wanderAmp, releaseJitterAmp: 0.45 },
+// 笔势是**叠在当局漂移性格之上**的行为表现（CONTEXT·笔势：只叠扰动、不换性格）——只加躁、不退性格。
+// 故这里记的是相对增量而非整包：性格标志位（cruiseSpeed／ringR0／warmup／damping…）一律取自当局性格包，
+// 只有扰动项（噪声／环心游走／松手微抖）随势升。若像从前那样整包替换（躁=急躁包、静=沉稳包），
+// 一局之内赋一次笔势就会把当局性格悄悄踩回沉稳——不报错、只是手感没了（#7 的坑）。
+// 增量按**绝对量**计（add），不按倍数（mul）：倍数叠在已经极端的档上会复利——怒 ×2 落在飘忽的
+// 噪声 13 上就是 26，落定耗时被顶出 #2 锁死的窗（40 种子 × 6 目标实测越窗 29/240、最长 33.8s，
+// 补行送仙最长 37.1s），笔心出纸的帧占比也从 0.09% 涨到 0.67%。绝对量则「无论请来的是哪一档，
+// 怒都加同样的一分躁」：躁 = 怒的一半；怒另加噪声更碎（tau 是相关时间、非幅度，仍按倍数缩）
+// 与脱手微抖更明显。同一口径复测：沉稳×怒 = 噪声 14／游走 15.3／微抖 0.45（#4 旧值 13／15／0.45，
+// 手感一致），飘忽×怒降到噪声 20／游走 21.3，越窗 6/240、最长 28.4s，补行最长回位 24.1s。
+// 残留：飘忽的躁/怒在宽种子下仍有约 1.7% 的落定擦过 28s 窗沿（最长 28.6s）——#2 的窗本为静息
+// 标定，笔势是「更躁」的定义，这点溢出记在 bixian-mood 的长尾上界里，不再靠收紧性格参数去够。
+export const MOOD_OVERLAYS = {
+  calm: {},
+  restless: { add: { noiseAmp: 3.5, wanderAmp: 3.15 } },
+  furious: {
+    add: { noiseAmp: 7, wanderAmp: 6.3, releaseJitterAmp: 0.2 },
+    mul: { noiseTau: 0.6 }, // 噪声更碎（tau 短，笔锋更「跳」）
+  },
 };
+
+// 当局性格 × 笔势 → 帧循环实际使用的参数包
+export function paramsWithMood(personalityId, mood) {
+  const base = paramsFor(personalityId);
+  const overlay = MOOD_OVERLAYS[mood];
+  if (!overlay) throw new Error(`未知笔势：${mood}（可选：${Object.keys(MOOD_OVERLAYS).join(" / ")}）`);
+  const params = { ...base };
+  for (const [key, delta] of Object.entries(overlay.add ?? {})) params[key] += delta;
+  for (const [key, factor] of Object.entries(overlay.mul ?? {})) params[key] *= factor;
+  return params;
+}
 
 export function nextMood(mood, verdict) {
   if (verdict?.kind !== "stray") return mood;
@@ -168,12 +192,14 @@ export function nextMood(mood, verdict) {
   return mood === "furious" ? "furious" : "restless";
 }
 
-// —— API 封装：与 runRpsRound 同一模式；失败抛出带 .status / .quota 的 Error
-export async function runSpiritCall(payload, { apiKey, onQuota = () => {}, fetchImpl = fetch } = {}) {
+// —— API 封装：与 runRpsRound 同一模式；失败抛出带 .status / .quota 的 Error。
+// signal 用于离场/作废时中断在途调用（与 runRpsRound 同款）；不传则行为不变
+export async function runSpiritCall(payload, { apiKey, onQuota = () => {}, signal, fetchImpl = fetch } = {}) {
   const httpResponse = await fetchImpl("/api/system-one", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ...(apiKey ? { apiKey } : {}), state: payload.state, questions: payload.questions }),
+    ...(signal ? { signal } : {}),
   });
   const response = await httpResponse.json();
   if (response.quota) onQuota(response.quota);

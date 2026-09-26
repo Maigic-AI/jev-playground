@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
-  PAPER, createRng, createDriftState, summon, ask, sendOff, resumeForSendoff, step, slippedLoose,
+  PAPER, createRng, createDriftState, pickPersonality, summon, ask, sendOff, resumeForSendoff, step, slippedLoose,
 } from "../lib/bixian-drift.js";
 import { markLingering, clearLingering, hasLingering } from "../lib/bixian-linger.js";
-import { CELLS, VERIFY_CELL } from "../lib/bixian-board.js";
+import { CELLS, VERIFY_CELL, cellByKey } from "../lib/bixian-board.js";
 import { createTrail, pruneTrail, trailSample, trailBuckets } from "../lib/bixian-trail.js";
 import {
-  createResponder, adjudicate, nextMood, MOOD_PARAMS, runSpiritCall,
+  createResponder, adjudicate, nextMood, paramsWithMood, runSpiritCall,
 } from "../lib/bixian-responder.js";
 import {
   DISTURB_TIERS, VIBES, BURST, CANDLE_DIP, tierForMood, rhythmForPhase,
@@ -17,10 +17,12 @@ import {
 const CHANT_SUMMON = "笔仙笔仙，我是你的今生，你是我的前世，若要与我续缘，请在纸上画圈。";
 const CHANT_SENDOFF = "笔仙笔仙，今日问事已毕，天光将晓，请你回去吧。";
 const MAX_QUESTIONS = 5; // 一局至多五问（验笔是仪式脚本，不占问数；迷走亦不占）
-const PERSONALITY = "steady"; // 请仙时的静息基准性格；越界/禁忌经 MOOD_PARAMS 转躁、升档
 const STILL_PHASES = new Set(["idle", "returned", "settled"]); // 笔迹沥干后可停帧的相位
 const CN_NUM = ["一", "二", "三", "四", "五"];
 const SPIRIT_DRY = new Set(["quota", "exhausted"]); // 仙力竭尽的两种来路：429 实测 / 配额预判
+// paramsRef 的占位包：帧循环只在有引擎时才读它，而真实参数在 prepareEngine 里按当局性格 × 笔势设好。
+// 提为模块级常量是为了不在每次渲染都重算一份（笔行时组件逐帧重绘）；不可在局中复用。
+const PLACEHOLDER_PARAMS = paramsWithMood("steady", "calm");
 const SLIP_HINT = "离笔过远，笔已脱手——指尖按在笔近处（随笔而行）续扶"; // 严格式脱手提示（问询/纸面下共用）
 // 仙未离去警示：记号在任何「非回位离场」时都会打——请仙途中、验笔途中亦算，
 // 故措辞不可称「问毕」（那只是其中一种来路），只陈「未及送仙、笔未回位」这一个事实
@@ -51,9 +53,12 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
   const driftKindRef = useRef(null); // verify | ask | send：当前 drift 段的仪式语义
   const responderRef = useRef(createResponder()); // 同局同问缓存（随局重建）
   const verdictRef = useRef(null); // 当前问的裁决：settled/strayed 回调按它落文案与问事录
-  const paramsRef = useRef(MOOD_PARAMS.calm); // 帧循环实际使用的漂移参数包（随笔势换）
+  const personalityRef = useRef("steady"); // 当局漂移性格：请仙时随机择一、全程不变。只以笔的行为示人，不进任何文案
+  const paramsRef = useRef(PLACEHOLDER_PARAMS); // 帧循环实际使用的参数包：性格 × 笔势（笔势只叠扰动，不换性格）；每局在 prepareEngine 里重设
   const paperWrapRef = useRef(null); // 纸面块：摇晃/爆发/骤暗类全在这上面 imperative 挂（className prop 保持静态，不与 React 冲突）
   const pointerRef = useRef(null); // 指尖纸面坐标：严格式脱手判定与共振输入共用
+  const aliveRef = useRef(true); // 组件在场：帧循环效应挂载置真、卸载置假（异步裁决返回时据此判「已离场」）
+  const spiritAbortRef = useRef(null); // 在途请示的中断柄：离场即 abort，不留悬空请求（与 game-rps 同款）
   const disturbRef = useRef(createDisturbState()); // 环境震动调度器（随局重建）
   const pulseSeqRef = useRef(0); // 脉冲环自增 id（React key）
   const timersRef = useRef(new Set()); // 扰动相关延时器集中管理，卸载时统一清
@@ -201,6 +206,7 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
   useEffect(() => {
     let raf = 0;
     let last = performance.now();
+    aliveRef.current = true;
     const loop = (now) => {
       raf = requestAnimationFrame(loop);
       const dt = Math.min((now - last) / 1000, 0.25);
@@ -237,6 +243,8 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
     };
     raf = requestAnimationFrame(loop);
     return () => {
+      aliveRef.current = false; // 离场：在途裁决返回后一律作废
+      spiritAbortRef.current?.abort(); // 悬空请求就地掐断（服务端仍可能已计费，这里只求不留悬线）
       cancelAnimationFrame(raf);
       clearTimeout(flashTimerRef.current);
       for (const timer of timersRef.current) clearTimeout(timer);
@@ -250,9 +258,17 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
   function prepareEngine() {
     clearTimeout(flashTimerRef.current);
     const seed = ((Date.now() & 0xffff) ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
-    const next = createDriftState({ rng: createRng(seed), personality: PERSONALITY });
+    const rng = createRng(seed);
+    // 请仙时择一档漂移性格：重开新局重新随机，一局之内不变。请仙口诀期间只走 summonTime，
+    // 与性格无关，故「建引擎时抽签」与「请仙完成时抽签」在体验上无异（笔的行为自验笔起显现）。
+    personalityRef.current = pickPersonality(rng);
+    const next = createDriftState({ rng, personality: personalityRef.current });
     engineRef.current = next;
     trailRef.current = createTrail();
+    // 扶笔闸门不跨局：上一局的指尖若未抬起（再请一局时多指按住），闸门会漏进新局，
+    // 让新局凭空处于「扶笔」态（着墨、常驻震动、严格式脱手判定都会提前接通）
+    holdingRef.current = false;
+    pointerRef.current = null;
     driftKindRef.current = null;
     lastQuestionRef.current = "";
     responderRef.current = createResponder(); // 同问缓存随局重建：上一局的裁决不带入新局
@@ -260,7 +276,7 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
     disturbRef.current = createDisturbState(); // 环境震动随局重新布防
     setMood("calm"); // 笔势归静
     moodRef.current = "calm";
-    paramsRef.current = MOOD_PARAMS.calm;
+    paramsRef.current = paramsWithMood(personalityRef.current, "calm");
     setQuestions([]);
     setInput("");
     setFlash(null);
@@ -307,19 +323,23 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
     setInput("");
     setFateNote(null);
     setStage("divining");
-    // 未带自有 key 且全站配额已知为 0：不必发这一次注定 429 的调用，直接退天意
-    const spiritExhausted = !apiKey && quota?.available === true && quota.remaining < 1;
+    // 未带自有 key 而仙力已知不济：本站未配默认 API（available=false，请求必 400）或全站配额已用尽
+    // （remaining<1，必 429）——两种都不必发这一次注定失败的调用，直接退天意（判据与 game-rps/quiz 同源）
+    const spiritExhausted = !apiKey && !!quota && (quota.available === false || quota.remaining < 1);
+    const spiritCall = new AbortController(); // 本问的在途请求：离场时由帧循环效应 cleanup 掐断
+    spiritAbortRef.current = spiritCall;
     const verdict = await adjudicate(responderRef.current, text, {
-      call: (payload) => runSpiritCall(payload, { apiKey, onQuota }),
+      call: (payload) => runSpiritCall(payload, { apiKey, onQuota, signal: spiritCall.signal }),
       rng: current.rng,
       exhausted: spiritExhausted,
     });
-    if (engineRef.current !== current || stageRef.current !== "divining") return; // 等待期间已另起仪式/离场：此问作废
+    // 等待期间已另起仪式/离场：此问作废（离场判据靠 aliveRef——仅比对 engineRef/stageRef 对卸载无效，两者都不随卸载改变）
+    if (!aliveRef.current || engineRef.current !== current || stageRef.current !== "divining") return;
     verdictRef.current = verdict;
     const next = nextMood(moodRef.current, verdict); // 越界转躁 / 触怒升档，随局持续（怒级常驻摇晃升至明晃即止）
     moodRef.current = next;
     setMood(next);
-    paramsRef.current = MOOD_PARAMS[next];
+    paramsRef.current = paramsWithMood(personalityRef.current, next); // 性格不动，只叠笔势的扰动
     ask(current, verdict.kind === "answer" ? verdict.cell : null); // 越界/禁忌 → 无目标迷走
     setStage("drift");
   }
@@ -410,7 +430,7 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
   const summonProgress = phase === "summoning" ? Math.min(1, engine.t / paramsRef.current.summonTime) : 0;
   const chantShown = CHANT_SUMMON.slice(0, Math.ceil((stage === "summoning" ? summonProgress : 1) * CHANT_SUMMON.length));
   const litCell = phase === "settled" && engine.answer?.type === "cell" ? engine.answer.key : null;
-  const lit = litCell ? CELLS.find((cell) => cell.key === litCell) : null;
+  const lit = litCell ? cellByKey(litCell) : null; // 查字位一律走 board 库（勿在界面重写 find）
   const holdable = ["ready", "asking", "strayed", "sending"].includes(phase);
   const drifting = stage === "drift";
   const holding = holdingRef.current;

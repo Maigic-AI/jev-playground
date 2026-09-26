@@ -2,10 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   GLYPHS, buildResponderPayload, decodeVerdict, isTabooQuestion,
-  createResponder, adjudicate, nextMood, MOOD_PARAMS, runSpiritCall,
+  createResponder, adjudicate, nextMood, MOOD_OVERLAYS, paramsWithMood, runSpiritCall,
 } from "../src/lib/bixian-responder.js";
 import { CELLS, cellByKey } from "../src/lib/bixian-board.js";
-import { createRng, paramsFor } from "../src/lib/bixian-drift.js";
+import { PERSONALITIES, createRng, paramsFor } from "../src/lib/bixian-drift.js";
 
 // ============ 落定字表（criteria 即预设字表，ADR-0001：只分类、不生成文本） ============
 
@@ -208,12 +208,83 @@ test("笔势迁移：越界转躁、禁忌触怒升档，答案不动笔势", ()
   assert.equal(nextMood("furious", null), "furious");
 });
 
-test("笔势参数：躁为急躁包，怒在躁上扰动升档", () => {
-  assert.deepEqual(MOOD_PARAMS.calm, paramsFor("steady"));
-  assert.deepEqual(MOOD_PARAMS.restless, paramsFor("hasty"));
-  assert.equal(MOOD_PARAMS.furious.noiseAmp > MOOD_PARAMS.restless.noiseAmp, true, "仙怒扰动应高于躁");
-  assert.equal(MOOD_PARAMS.furious.wanderAmp > MOOD_PARAMS.restless.wanderAmp, true);
-  assert.equal(MOOD_PARAMS.furious.releaseJitterAmp > MOOD_PARAMS.restless.releaseJitterAmp, true);
+test("笔势叠层：只加扰动不换性格——三档性格 × 三笔势下，性格标志位原封不动", () => {
+  // 性格标志位：起速／蓄势环半径／环行弹簧与径向阻尼／全局阻尼／慢起速／蓄势与渐近时长／收圈半径与收势时长
+  const MARKERS = [
+    "cruiseSpeed", "ringR0", "ringK", "ringDamp", "damping",
+    "startRamp", "warmup", "approach", "finalRadius", "stillTime",
+  ];
+  for (const id of Object.keys(PERSONALITIES)) {
+    const base = paramsFor(id);
+    assert.deepEqual(paramsWithMood(id, "calm"), base, `${id}：静即当局性格本身，不叠任何扰动`);
+    for (const mood of Object.keys(MOOD_OVERLAYS)) {
+      const params = paramsWithMood(id, mood);
+      for (const key of MARKERS) {
+        assert.equal(params[key], base[key], `${id}×${mood}：性格标志位 ${key} 不应被笔势改动`);
+      }
+      assert.equal(params.settleMode, base.settleMode, `${id}×${mood}：判定式属性格`);
+      assert.equal(params.dwellTime, base.dwellTime, `${id}×${mood}：落定驻留属性格`);
+      assert.deepEqual(Object.keys(params).sort(), Object.keys(base).sort(), "笔势不新增键");
+    }
+  }
+});
+
+test("笔势叠层：扰动项随势升（怒 > 躁 > 静），怒级噪声更碎、脱手更抖", () => {
+  for (const id of Object.keys(PERSONALITIES)) {
+    const calm = paramsWithMood(id, "calm");
+    const restless = paramsWithMood(id, "restless");
+    const furious = paramsWithMood(id, "furious");
+    assert.ok(restless.noiseAmp > calm.noiseAmp && furious.noiseAmp > restless.noiseAmp, `${id}：噪声随势升`);
+    assert.ok(restless.wanderAmp > calm.wanderAmp && furious.wanderAmp > restless.wanderAmp, `${id}：环心游走随势升`);
+    assert.ok(furious.noiseTau < restless.noiseTau, `${id}：怒级噪声更碎（tau 更短）`);
+    assert.ok(furious.releaseJitterAmp > restless.releaseJitterAmp, `${id}：怒级脱手微抖更大`);
+  }
+});
+
+test("笔势叠层：增量按绝对量叠，不在极端档上复利（改回倍数会让飘忽×怒越出 #2 的耗时窗）", () => {
+  // 这条锁的是「叠」的语义：怒加的是同一分躁，不是同一倍数。改成倍数（噪声 ×2）会落在飘忽的
+  // 噪声 13 上变成 26，落定耗时被顶出 #2 锁死的窗 [18, 28]s（40 种子实测最长 33.8s）——
+  // 越窗的后果是「一局能拖过 3 分钟」，而沉稳档一切正常，单看沉稳的参数值发现不了。
+  const deltas = {};
+  for (const id of Object.keys(PERSONALITIES)) {
+    const base = paramsFor(id);
+    const furious = paramsWithMood(id, "furious");
+    const restless = paramsWithMood(id, "restless");
+    deltas[id] = {
+      noise: furious.noiseAmp - base.noiseAmp,
+      wander: furious.wanderAmp - base.wanderAmp,
+      jitter: furious.releaseJitterAmp - base.releaseJitterAmp,
+    };
+    // 躁 = 怒的一半（同一条倍数规则，写死一处即可推另一处）；比浮点差要留容差
+    assert.ok(Math.abs(restless.noiseAmp - base.noiseAmp - deltas[id].noise / 2) < 1e-9, `${id}：躁的噪声增量应为怒的一半`);
+    assert.ok(Math.abs(restless.wanderAmp - base.wanderAmp - deltas[id].wander / 2) < 1e-9, `${id}：躁的游走增量应为怒的一半`);
+  }
+  for (const id of Object.keys(PERSONALITIES)) {
+    assert.deepEqual(deltas[id], deltas.steady, `${id}：怒的扰动增量应与沉稳档同量（绝对增量，不随档复利）`);
+  }
+  // 沉稳×怒 的绝对值即 #4 定下的怒档手感（旧 MOOD_PARAMS.furious：噪声 13／游走 15／微抖 0.45）
+  const anchor = paramsWithMood("steady", "furious");
+  assert.equal(anchor.noiseAmp, 14, "沉稳×怒噪声 14（#4 旧值 13）");
+  assert.equal(anchor.wanderAmp, 15.3, "沉稳×怒游走 15.3（#4 旧值 15）");
+  assert.equal(anchor.releaseJitterAmp, 0.45, "沉稳×怒脱手微抖 0.45（#4 旧值同）");
+  assert.equal(anchor.noiseTau, 0.42, "沉稳×怒噪声更碎（tau 0.7→0.42，约 #4 旧值 0.35）");
+});
+
+test("笔势叠层：不再把当局性格踩回沉稳（#7 的坑——旧实现是整包替换）", () => {
+  const steady = paramsFor("steady");
+  for (const id of ["hasty", "erratic"]) {
+    const base = paramsFor(id);
+    const mooded = paramsWithMood(id, "furious");
+    for (const key of ["cruiseSpeed", "ringR0", "warmup", "damping"]) {
+      assert.equal(mooded[key], base[key], `${id}：${key} 须是当局性格的`);
+      assert.notEqual(base[key], steady[key], `夹具前提：${id} 的 ${key} 与沉稳不同`);
+    }
+  }
+});
+
+test("笔势叠层：未知笔势或未知性格显式抛错（不静默回退到静）", () => {
+  assert.throws(() => paramsWithMood("steady", "nope"), /未知笔势/);
+  assert.throws(() => paramsWithMood("nope", "calm"), /未知漂移性格/);
 });
 
 // ============ API 封装（可注入 fetchImpl，与猜拳同一模式） ============

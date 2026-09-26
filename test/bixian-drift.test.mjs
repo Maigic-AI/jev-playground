@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  PAPER, DEFAULT_PARAMS, PERSONALITIES, paramsFor, createRng,
+  PAPER, DEFAULT_PARAMS, PERSONALITIES, paramsFor, pickPersonality, createRng,
   createDriftState, summon, ask, sendOff, resumeForSendoff, step, slippedLoose,
 } from "../src/lib/bixian-drift.js";
+import { MOOD_OVERLAYS, paramsWithMood } from "../src/lib/bixian-responder.js";
 import { CELLS, cellByKey } from "../src/lib/bixian-board.js";
 
 // —— 纸面字位（A 边条式）与 cellByKey 自 bixian-board 库导入：引擎对布局无感知，这里只是落定矩阵的目标夹具。
@@ -94,27 +95,66 @@ test("请仙：口诀期满笔活，位置只在纸心附近微颤", () => {
 const MATRIX_TARGETS = ["勾", "是", "三", "八", "十", "唐"]; // 覆盖顶边、左右列、底边
 const WINDOWS = { steady: [12, 20], hasty: [6, 11], erratic: [18, 28] };
 const ANCHOR = { steady: 16, hasty: 8, erratic: 23 };
+// 笔势轴（#7）：笔势只叠扰动、不换性格，故三档共用同一套耗时窗。笔势的定义在 bixian-responder，
+// 此处验它与引擎的合成——「怒叠在飘忽上」（噪声最猛的一组）是否仍在窗内，此前从未验过。
+const MOOD_NAMES = { calm: "静", restless: "躁", furious: "怒" };
 
 for (const id of Object.keys(PERSONALITIES)) {
-  test(`落定矩阵（${PERSONALITIES[id].name}）：全部组合落定、答案正确、耗时在窗内`, () => {
-    const times = [];
-    for (const key of MATRIX_TARGETS) {
-      for (const seed of SEEDS) {
-        const state = makeReady(id, seed);
-        ask(state, cellByKey(key));
-        const t = runToSettled(state, paramsFor(id), 45);
-        assert.ok(t !== null, `${id}×${key}×seed${seed}：45s 内未落定`);
-        assert.equal(state.answer.type, "cell");
-        assert.equal(state.answer.key, key, `应落在目标字上，实际 ${state.answer.key}`);
-        times.push(t);
+  for (const mood of Object.keys(MOOD_OVERLAYS)) {
+    test(`落定矩阵（${PERSONALITIES[id].name}×${MOOD_NAMES[mood]}）：全部组合落定、答案正确、耗时在窗内`, () => {
+      const params = paramsWithMood(id, mood);
+      const times = [];
+      for (const key of MATRIX_TARGETS) {
+        for (const seed of SEEDS) {
+          const state = makeReady(id, seed);
+          ask(state, cellByKey(key));
+          const t = runToSettled(state, params, 45);
+          assert.ok(t !== null, `${id}×${mood}×${key}×seed${seed}：45s 内未落定`);
+          assert.equal(state.answer.type, "cell");
+          assert.equal(state.answer.key, key, `应落在目标字上，实际 ${state.answer.key}`);
+          times.push(t);
+        }
       }
-    }
-    const [lo, hi] = WINDOWS[id];
-    for (const t of times) assert.ok(t >= lo && t <= hi, `${id} 落定耗时 ${t}s 应在窗 [${lo}, ${hi}]s 内`);
-    const med = median(times);
-    assert.ok(Math.abs(med - ANCHOR[id]) <= 4, `${id} 中位耗时 ${med}s 应接近规格锚点 ${ANCHOR[id]}s`);
-  });
+      const [lo, hi] = WINDOWS[id];
+      for (const t of times) assert.ok(t >= lo && t <= hi, `${id}×${mood} 落定耗时 ${t}s 应在窗 [${lo}, ${hi}]s 内`);
+      const med = median(times);
+      assert.ok(Math.abs(med - ANCHOR[id]) <= 4, `${id}×${mood} 中位耗时 ${med}s 应接近规格锚点 ${ANCHOR[id]}s`);
+    });
+  }
 }
+
+// ============ 漂移性格：每局择一、全程不变（#7） ============
+test("pickPersonality：种子化确定、覆盖三档、分布不退化", () => {
+  const ids = Object.keys(PERSONALITIES);
+  const draws = [];
+  for (let i = 0; i < 300; i += 1) draws.push(pickPersonality(createRng(9000 + i)));
+  assert.ok(draws.every((id) => ids.includes(id)), "只出已知的档");
+  assert.deepEqual([...new Set(draws)].sort(), [...ids].sort(), `应覆盖三档（实测 ${[...new Set(draws)].join(" / ")}）`);
+  assert.equal(pickPersonality(createRng(SEEDS[2])), pickPersonality(createRng(SEEDS[2])), "同种子同档");
+  for (const id of ids) {
+    const share = draws.filter((draw) => draw === id).length / draws.length;
+    assert.ok(share > 0.2 && share < 0.47, `${id} 占比 ${share.toFixed(2)} 应接近均匀（防恒定一档的退化）`);
+  }
+  // 注入的 RNG 若碰到 1（或逾界）不能让抽签落空：undefined 会被 createDriftState 静默吃成默认档，
+  // 一路顺到下一问才在 paramsWithMood 里抛错——那时已在一局当中了
+  assert.equal(pickPersonality(() => 1), ids[ids.length - 1], "rng()===1 取末档（不越界成 undefined）");
+  assert.equal(pickPersonality(() => 1.5), ids[ids.length - 1], "rng() 逾界取末档");
+  assert.equal(pickPersonality(() => -0.2), ids[0], "rng() 为负取首档");
+});
+
+test("性格全程不变：一局（请仙→问→落定→送仙→回位）不换性格，只在新引擎里重新择档", () => {
+  for (const id of Object.keys(PERSONALITIES)) {
+    const state = makeReady(id, SEEDS[0]);
+    assert.equal(state.personality, id, "择定的性格随当局引擎落座");
+    ask(state, cellByKey("是"));
+    assert.ok(runToSettled(state, paramsFor(id), 45) !== null);
+    assert.equal(state.personality, id, "问询全程不换性格");
+    sendOff(state);
+    advance(state, paramsFor(id), 25, { holding: true });
+    assert.equal(state.phase, "returned");
+    assert.equal(state.personality, id, "送仙归位后仍不换（重开新局才重新择档）");
+  }
+});
 
 // ============ 收势锁：末段减速螺旋 ============
 test("收势存在：渐近完成后笔在减速（末段速度显著低于渐近中段）", () => {
@@ -316,6 +356,24 @@ test("补行送仙：仅 idle 可补，起笔落在蓄势环上、径直送回�
     });
     assert.ok(returnedAt !== null, "扶笔相送 25s 内应回位");
     assert.ok(distToCenter(state.pos) < 3.5, `回位后距纸心应小于容差 3.5u（实测 ${distToCenter(state.pos)}u）`);
+  }
+});
+
+test("补行送仙：起笔落在**当局性格**的蓄势环上（沉稳 24u / 急躁 20u / 飘忽 27u）", () => {
+  for (const id of Object.keys(PERSONALITIES)) {
+    const ringR0 = paramsFor(id).ringR0;
+    for (const seed of SEEDS) {
+      const state = createDriftState({ rng: createRng(seed), personality: id });
+      assert.equal(resumeForSendoff(state), true);
+      const r = distToCenter(state.pos);
+      assert.ok(Math.abs(r - ringR0) < 0.01, `${id}：起笔应在当局蓄势环上（距心 ${r.toFixed(2)}u / 环半径 ${ringR0}u）`);
+      assert.ok(state.pos.x > 6 && state.pos.x < PAPER.w - 6 && state.pos.y > 8 && state.pos.y < PAPER.h - 8,
+        "起笔须在纸面软边界内");
+      if (id !== "steady") {
+        // 回归：旧实现写死 DEFAULT_PARAMS.ringR0（=24），急躁偏外 4u、飘忽偏内 3u
+        assert.ok(Math.abs(r - DEFAULT_PARAMS.ringR0) > 1, `${id}：起笔不应落在写死的默认环 24u 上`);
+      }
+    }
   }
 });
 

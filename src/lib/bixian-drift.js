@@ -94,6 +94,15 @@ export function paramsFor(personalityId) {
   return { ...DEFAULT_PARAMS, ...pack.overrides };
 }
 
+// 每局择一档漂移性格：请仙时选定、全程不变（换档只在新引擎里发生）。走注入的 RNG，种子化可复现。
+// 性格只以笔的行为示人——起速、噪声、环心游走、迟迟不落——绝不点名，也不进事件流（见 bixian-mood 测试）。
+export function pickPersonality(rng = Math.random) {
+  const ids = Object.keys(PERSONALITIES);
+  // 夹住两端：注入的 RNG 若返回 1（含）以上或负数，取整后会越界成 undefined，
+  // 而 undefined 会被 createDriftState 当默认值静默吃成沉稳，直到下一问 paramsWithMood 才抛错
+  return ids[clamp(Math.floor(rng() * ids.length), 0, ids.length - 1)];
+}
+
 export function createDriftState({ rng = Math.random, personality = "steady" } = {}) {
   return {
     phase: "idle", // idle|summoning|ready|asking|settled|strayed|sending|returned
@@ -135,11 +144,14 @@ export function sendOff(s) {
 // 补行送仙（spec #6 仙未离去）：上一局未回位、仙未离去，重进页面后从送仙直接补起。
 // 笔位无从复原（问事录与会话都不落盘，只记得「仙还在」这一个事实），就从蓄势环上
 // 随机一处起步（走注入的 RNG，种子化可复现），跳过请仙口诀径直送回纸心。
+// 起笔半径取**当局性格**的蓄势环（沉稳 24u / 急躁 20u / 飘忽 27u）：性格随局之后，
+// 写死的默认环会让急躁偏外 4u、飘忽偏内 3u——落点不再在环上。
 export function resumeForSendoff(s) {
   if (s.phase !== "idle") return false;
+  const ringR0 = paramsFor(s.personality).ringR0;
   const ang = s.rng() * 2 * Math.PI;
-  s.pos.x = PAPER.center.x + Math.cos(ang) * DEFAULT_PARAMS.ringR0;
-  s.pos.y = PAPER.center.y + Math.sin(ang) * DEFAULT_PARAMS.ringR0;
+  s.pos.x = PAPER.center.x + Math.cos(ang) * ringR0;
+  s.pos.y = PAPER.center.y + Math.sin(ang) * ringR0;
   s.vel.x = 0; s.vel.y = 0;
   s.phase = "ready"; // 仙本就在，无需再请：只借 ready 作送仙的合法起点
   ev(s, "补行送仙：仙未离去，自纸面一处径送回位");

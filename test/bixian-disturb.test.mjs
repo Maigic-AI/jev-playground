@@ -4,6 +4,7 @@ import {
   DISTURB_TIERS, BURST, CANDLE_DIP, VIBES,
   tierForMood, rhythmForPhase, createDisturbState, stepAmbient, settlePlan,
 } from "../src/lib/bixian-disturb.js";
+import { MOOD_OVERLAYS } from "../src/lib/bixian-responder.js";
 
 // 扰动调度（spec #5）：档位/节奏的「何时发」是纯逻辑（本模块），「如何呈现」归 UI（CSS/震动调用）。
 // 档位参数全部来自原型标定：微晃 ±1.1px·2.8s；明晃 ±3.4px+0.12°·0.95s；试吓 ±7px+0.4°·0.42s；
@@ -32,6 +33,16 @@ test("笔势映射档位：静/躁常驻微晃，怒止于明晃；试吓无任�
   const allTiers = ["calm", "restless", "furious"].map(tierForMood);
   assert.ok(allTiers.every((t) => t < 3), "试吓档（3）仅存于代码对照，无 gameplay 来路");
   assert.throws(() => tierForMood("unknown"), /笔势/, "未知笔势显式抛错（不静默回退）");
+});
+
+// 笔势有两个注册表：本模块的档位表（tierForMood）与 bixian-responder 的叠层表（MOOD_OVERLAYS）。
+// 叠层表是笔势的定义处（测试迭代它来扩张覆盖），档位表却是各自写死的一份——加第四档笔势时若漏改这里，
+// bixian-mood / bixian-responder 会全绿，界面却会在挂摇晃类时抛错卸载。故在此锁两条表同键。
+test("笔势注册表一致：叠层表（MOOD_OVERLAYS）的每一档，扰动档位表都认得", () => {
+  for (const mood of Object.keys(MOOD_OVERLAYS)) {
+    assert.ok(Number.isInteger(tierForMood(mood)), `笔势『${mood}』应在扰动档位表内（勿只加在 MOOD_OVERLAYS）`);
+  }
+  assert.ok(Object.keys(MOOD_OVERLAYS).includes("furious"), "夹具有效性：怒档须在叠层表内");
 });
 
 test("相位映射节奏：行笔与迷走走间歇三连，静候与回位走常息，其余无环境震动", () => {
