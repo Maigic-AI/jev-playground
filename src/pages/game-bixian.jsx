@@ -437,10 +437,11 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
 
   return (
     <main className="bx-page wrap">
-      <div className="bx-scene">
+      <div className="bx-scene" data-stage={stage}>
+        <div className="bx-candle-prop" aria-hidden="true"><i /><b /><span /></div>
         <div className="bx-head">
           <button className="bx-back" onClick={onExit} aria-label="回大厅">×</button>
-          <div><strong>笔仙</strong><span>ROOM 02 · 游戏室</span></div>
+          <div><strong>笔仙</strong><span>一纸问事 · 烛下候音</span></div>
           <b className="bx-badge">{stage === "drift" ? driftBadge(driftKindRef.current) : STAGE_BADGE[stage]}</b>
         </div>
         <div className="bx-body">
@@ -449,12 +450,20 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
               <defs>
                 {/* 渐变必须 userSpaceOnUse：竖直窄件的 objectBoundingBox 在零宽包围盒下不渲染（原型踩坑） */}
                 <linearGradient id="bxPenBody" gradientUnits="userSpaceOnUse" x1="-1.8" y1="0" x2="1.8" y2="0">
-                  <stop offset="0" stopColor="#241a10" />
-                  <stop offset="0.42" stopColor="#8a6b3f" />
-                  <stop offset="0.55" stopColor="#c9a266" />
-                  <stop offset="1" stopColor="#2b2013" />
+                  <stop offset="0" stopColor="#100f0d" />
+                  <stop offset="0.42" stopColor="#524333" />
+                  <stop offset="0.55" stopColor="#958269" />
+                  <stop offset="1" stopColor="#191611" />
                 </linearGradient>
               </defs>
+              <g className="bx-paper-ornament" aria-hidden="true">
+                <path d="M5 24 V5 H95 V24 M5 137 V155 H95 V137 M22 26 H78 M22 136 H78" />
+                <circle cx="50" cy="80" r="19" />
+                <circle cx="50" cy="80" r="17.8" />
+                <path d="M47 80 H53 M50 77 V83" />
+                <text x="50" y="61">扶而不引</text>
+                <text x="50" y="105">问毕必送</text>
+              </g>
               {CELLS.map((cell) => (
                 <text key={cell.key} x={cell.x} y={cell.y} className={`bx-cell${litCell === cell.key ? " lit" : ""}`}>{cell.key}</text>
               ))}
@@ -467,11 +476,14 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
                 />
               ))}
               <g transform={`translate(${pos.x.toFixed(3)} ${pos.y.toFixed(3)})`} className={`bx-pen${phase === "idle" ? " resting" : ""}`}>
-                <ellipse className="bx-pen-shadow" cx="0" cy="0.9" rx="4.4" ry="1.4" />
+                {/* 触点恒为 (0,0)，投影同心；短笔避免视觉触点偏移。 */}
+                <ellipse className="bx-pen-shadow" cx="0" cy="0" rx="3" ry="0.9" />
                 <g transform="rotate(-8)">
-                  <polygon className="bx-pen-tip" points="0,0 -1.5,-4.4 1.5,-4.4" />
-                  <rect className="bx-pen-ferrule" x="-1.9" y="-6" width="3.8" height="1.7" rx="0.5" />
-                  <rect className="bx-pen-body" x="-1.8" y="-21" width="3.6" height="15.2" rx="1.4" fill="url(#bxPenBody)" />
+                  <path className="bx-pen-tip" d="M0 0 Q-1.9-2.6-1.2-4.4 H1.2 Q1.9-2.6 0 0Z" />
+                  <rect className="bx-pen-body" x="-1.35" y="-16" width="2.7" height="11.8" rx=".9" fill="url(#bxPenBody)" />
+                  <path d="M-.8-14.8 V-6" stroke="#c1a47c" strokeWidth=".18" opacity=".55" />
+                  <path d="M-1.35-5.4 H1.35 M-1.35-6 H1.35 M-1.1-14.6 H1.1" stroke="#b79a62" strokeWidth=".45" />
+                  <path d="M-1.3-10 Q0-11.2 1.3-10 M-1.3-9.4 Q0-10.6 1.3-9.4" fill="none" stroke="#762f25" strokeWidth=".55" />
                 </g>
               </g>
               <rect
@@ -491,8 +503,9 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
           <aside className="bx-panel">
             {stage === "entrance" && (
               <div className="bx-card">
-                <span className="bx-kicker">入局须知</span>
-                <h2>夜静更深，铺纸请仙</h2>
+                <span className="bx-kicker">子夜 · 一纸之约</span>
+                <h2>夜静更深<br />铺纸请仙</h2>
+                <p className="bx-intro">灯花未落，纸上已有回音。</p>
                 <p>一局之礼：请仙 → 验笔 → 问询 → 送仙 → 回位。至多五问，问毕必送，送必至回位。</p>
                 <p>扶笔之法：指尖按在笔旁、随笔而行，离笔过远即脱手（易用可切宽松式：按住纸面即扶）；笔行于纸，不由人引。</p>
                 {lingering ? (
@@ -501,10 +514,10 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
                   <div className="bx-linger">
                     <strong>{LINGER_TITLE}</strong>
                     <p>{LINGER_NOTE}</p>
-                    <button className="bx-primary" onClick={resumeSendOff}>补行送仙 🕯️</button>
+                    <button className="bx-primary" onClick={resumeSendOff}>补行送仙</button>
                   </div>
                 ) : (
-                  <button className="bx-primary" onClick={beginSummon}>点烛请仙 🕯️</button>
+                  <button className="bx-primary" onClick={beginSummon}>点烛请仙</button>
                 )}
                 <p className="bx-dim">戏中之事，纯属娱乐。</p>
               </div>
@@ -615,8 +628,9 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
                 })()}
               </details>
             )}
-            <div className="bx-toggles">
-              <span className="bx-kicker">扶笔与扰动</span>
+            <details className="bx-toggles">
+              <summary>扶笔与扰动</summary>
+              <div className="bx-toggle-content">
               <div className="bx-toggle-row">
                 <span>扶笔式</span>
                 <div className="bx-seg" role="group" aria-label="扶笔式">
@@ -635,7 +649,8 @@ export default function BixianGame({ apiKey, onKey, quota, onQuota, onExit }) {
                 <span>震动（仅扶笔时{VIBE_OK ? "" : "，此机无体感"}·伴脉冲环）</span>
                 <input type="checkbox" checked={vibeOn} onChange={(event) => setVibeOn(event.target.checked)} aria-label="震动" />
               </label>
-            </div>
+              </div>
+            </details>
           </aside>
         </div>
         {drifting && !holding && (

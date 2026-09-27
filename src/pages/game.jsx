@@ -104,13 +104,13 @@ export default function GameHome({ navigate, apiKey, onKey, quota, onQuota }) {
           </div>
         </article>
         <article className="rps-feature bx-feature" style={{ marginTop: "20px" }}>
-          <div className="card-top"><span className="card-number">BXIAN</span><span className="card-emoji">🕯️</span></div>
+          <div className="card-top"><span className="card-number">夜半 · 笔仙</span><span className="bx-feature-seal" aria-hidden="true">问<br />事</span></div>
           <div>
-            <h3>笔仙 · 请仙问答</h3>
-            <p>铺纸、点烛、请仙——完整的传统仪式：验笔以确认仙至，问询以落笔求答，送仙以回位归寂。笔自漂移，扶而不引，至多五问，问毕必送。</p>
+            <h3><span className="bx-feature-title">笔仙</span> · 烛下问事</h3>
+            <p>灯花未落，纸上已有回音。铺一张旧纸，扶一支墨笔，请仙问事。至多五问，扶而不引，问毕必送。</p>
           </div>
           <div className="card-actions">
-            <button className="auto-action" onClick={() => setView("bixian")}>入局请仙 <span>🖌️</span></button>
+            <button className="auto-action" onClick={() => setView("bixian")}>入局请仙 <span>↗</span></button>
           </div>
         </article>
       </section>

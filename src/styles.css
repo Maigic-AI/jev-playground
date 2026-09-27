@@ -276,8 +276,8 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(255,79,111,.
 .rps-feature.bx-feature .card-actions { border-top-color: #40351f; }
 .bx-page { padding: 38px 0 70px; }
 .bx-scene {
-  --bx-amber: #c9a266; --bx-amber-bright: #f0cf8e; --bx-ink-text: #cbb98f; --bx-paper: #191309;
-  --bx-panel: #141009; --bx-line: #2c2314; --bx-dim: #8f7f5c;
+  --bx-amber: #c9a266; --bx-amber-bright: #f0cf8e; --bx-ink-text: #532b22; --bx-paper: #b18b50;
+  --bx-panel: #141009; --bx-line: #2c2314; --bx-dim: #b1a084;
   background: #0d0a06; border: 1px solid var(--bx-line); border-radius: 28px; padding: 22px;
   color: #e8dcc0; position: relative; overflow: hidden;
 }
@@ -288,19 +288,19 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(255,79,111,.
 .bx-back { width: 40px; height: 40px; border: 1px solid var(--bx-line); border-radius: 50%; background: var(--bx-panel); color: #e8dcc0; font-size: 24px; cursor: pointer; }
 .bx-back:hover { border-color: var(--bx-amber); }
 .bx-badge { font-size: 12px; font-weight: 900; letter-spacing: .3em; color: var(--bx-amber-bright); border: 1px solid var(--bx-line); border-radius: 999px; padding: 8px 10px 8px 14px; }
-.bx-body { display: grid; grid-template-columns: minmax(0, 400px) 1fr; gap: 22px; margin-top: 20px; align-items: start; }
-.bx-paper-wrap { position: relative; border-radius: 18px; overflow: hidden; }
-.bx-paper { width: 100%; height: auto; display: block; background: var(--bx-paper); }
-.bx-paper-wrap::after { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 30%, rgba(255,196,96,.13), rgba(0,0,0,.42) 78%); pointer-events: none; animation: bx-candle 4.2s ease-in-out infinite; }
+.bx-body { display: grid; grid-template-columns: minmax(0, 350px) minmax(0, 1fr); gap: clamp(28px, 5vw, 76px); margin-top: 32px; align-items: start; }
+.bx-paper-wrap { position: relative; border-radius: 2px 5px 3px 7px; overflow: hidden; box-shadow: 0 22px 45px #0009, 0 2px 5px #000; }
+.bx-paper { width: 100%; height: auto; display: block; background: var(--bx-paper) url("/art/bixian/paper.svg") center / 100% 100%; }
+.bx-paper-wrap::after { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse at 0% 0%, rgba(255,219,154,.17), transparent 65%); pointer-events: none; animation: bx-candle 4.2s ease-in-out infinite; }
 @keyframes bx-candle { 0%,100% { opacity: 1; } 40% { opacity: .82; } 62% { opacity: .93; } 78% { opacity: .86; } }
-.bx-cell { fill: var(--bx-ink-text); font-size: 6px; font-family: "Kaiti SC", "STKaiti", KaiTi, "FZKai-Z03S", serif; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
-.bx-cell.lit { fill: var(--bx-amber-bright); filter: drop-shadow(0 0 2.5px rgba(240,190,100,.9)); animation: bx-cell-pulse 1.6s ease-in-out infinite; }
+.bx-cell { fill: var(--bx-ink-text); font-size: 6px; font-family: "Bixian Brush", serif; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.bx-cell.lit { fill: #681b15; filter: drop-shadow(0 0 2.5px rgba(240,190,100,.9)); animation: bx-cell-pulse 1.6s ease-in-out infinite; }
 @keyframes bx-cell-pulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
 .bx-settle-ring { fill: none; stroke: var(--bx-amber); stroke-width: .7; stroke-dasharray: 3 2.4; opacity: .85; animation: bx-ring 1.6s ease-in-out infinite; pointer-events: none; }
 @keyframes bx-ring { 0%,100% { opacity: .85; } 50% { opacity: .25; } }
-.bx-ink { fill: none; stroke: #b7a173; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.bx-ink { fill: none; stroke: #46261e; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 .bx-pen { pointer-events: none; }
-.bx-pen.resting { opacity: .5; }
+.bx-pen.resting { opacity: 1; }
 .bx-pen-shadow { fill: #000; opacity: .5; }
 .bx-pen-tip { fill: #16100a; }
 .bx-pen-ferrule { fill: #6f5836; }
@@ -316,7 +316,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(255,79,111,.
 .bx-card h2 { font-size: 26px; letter-spacing: .02em; margin: 16px 0 10px; color: #f2e6c8; }
 .bx-card p { line-height: 1.9; margin: 0 0 10px; }
 .bx-card > .bx-primary { margin-top: 10px; }
-.bx-chant { font-family: "Kaiti SC", "STKaiti", KaiTi, "FZKai-Z03S", serif; font-size: 19px; line-height: 2; color: #f2e6c8; }
+.bx-chant { font-family: inherit; font-size: 19px; line-height: 2; color: #f2e6c8; }
 .bx-dim { color: var(--bx-dim); font-size: 13px; }
 .bx-progress { height: 6px; background: #241c10; border-radius: 999px; overflow: hidden; margin: 14px 0 12px; }
 .bx-progress div { height: 100%; background: linear-gradient(90deg, #8a6b3f, var(--bx-amber-bright)); border-radius: inherit; }
@@ -378,7 +378,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(255,79,111,.
 }
 
 /* ---- 笔仙扶笔与扰动开关 ---- */
-.bx-toggles { display: grid; gap: 12px; background: var(--bx-panel); border: 1px dashed var(--bx-line); border-radius: 14px; padding: 14px 16px; }
+.bx-toggles { background: var(--bx-panel); border: 1px dashed var(--bx-line); border-radius: 14px; padding: 14px 16px; }
 .bx-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; color: #d8caa6; }
 .bx-seg { display: flex; border: 1px solid var(--bx-line); border-radius: 999px; overflow: hidden; }
 .bx-seg button { border: none; background: transparent; color: var(--bx-dim); padding: 6px 14px; font-size: 12px; font-weight: 800; cursor: pointer; }
@@ -390,4 +390,66 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(255,79,111,.
 @media (max-width: 880px) {
   .bx-body { grid-template-columns: 1fr; }
   .bx-paper-wrap { max-width: 400px; margin: 0 auto; width: 100%; }
+}
+
+/* Issue #9: local brush lettering, aged paper and a candlelit dark island. */
+@font-face {
+  font-family: "Bixian Brush";
+  src: url("/fonts/bixian-brush.ttf") format("truetype");
+  font-display: swap;
+  font-weight: 400;
+}
+.bx-scene {
+  background: radial-gradient(ellipse at 4% 18%, #60402455, transparent 52%),
+    repeating-linear-gradient(92deg, #ffffff02 0 1px, transparent 1px 83px), #141310;
+  border-radius: 8px;
+  padding: clamp(20px, 4vw, 48px);
+  isolation: isolate;
+}
+.bx-scene::before {
+  background: radial-gradient(ellipse at 0% 24%, #cf873322, transparent 58%);
+  z-index: -1;
+}
+.bx-head { position: relative; z-index: 1; padding-bottom: 20px; border-bottom: 1px solid #b89b6333; }
+.bx-head strong { font-family: "Bixian Brush", serif; font-size: 32px; font-weight: 400; letter-spacing: .2em; }
+.bx-head span { letter-spacing: .2em; }
+.bx-badge { border-radius: 2px; border-color: #8c493c; color: #dc9a80; }
+.bx-paper-ornament { fill: none; stroke: #613820; stroke-width: .18; opacity: .3; pointer-events: none; }
+.bx-paper-ornament text { fill: #613820; stroke: none; font: 3.5px "Bixian Brush", serif; text-anchor: middle; letter-spacing: 1px; }
+.bx-cell { font-size: 6.7px; }
+.bx-settle-ring { stroke: #7c3021; }
+.bx-card { background: transparent; border: 0; border-radius: 0; padding: 12px 0 20px; }
+.bx-kicker { padding: 0; border: 0; border-radius: 0; font-weight: 500; letter-spacing: .28em; }
+.bx-card h2 { font-family: "Bixian Brush", serif; font-weight: 400; font-size: clamp(36px, 4vw, 52px); line-height: 1.35; letter-spacing: .13em; margin: 20px 0; }
+.bx-card p { font-size: 14px; line-height: 2; }
+.bx-card .bx-intro { color: #d4b982; margin-bottom: 24px; letter-spacing: .08em; }
+.bx-card .bx-chant { font-size: 21px; }
+.bx-primary { border-radius: 3px; background: linear-gradient(110deg, #b68d50, #d6b97d); box-shadow: 0 3px 16px #0003; letter-spacing: .12em; }
+.bx-ghost { border-radius: 3px; }
+.bx-toggles { border: 0; border-top: 1px solid #b89b6333; background: transparent; border-radius: 0; padding: 16px 0; }
+.bx-toggles summary { cursor: pointer; color: var(--bx-dim); font-size: 12px; letter-spacing: .15em; }
+.bx-toggle-content { display: grid; gap: 16px; padding-top: 20px; }
+.bx-scene :is(button, summary, input):focus-visible { outline: 2px solid #efca87; outline-offset: 4px; }
+.bx-flash { max-width: calc(100% - 24px); width: max-content; white-space: normal; text-align: center; }
+/* Decorative candle: no hit area; upper-left lighting matches the paper. */
+.bx-candle-prop { position: absolute; left: 9px; top: 154px; width: 30px; height: 110px; pointer-events: none; opacity: .85; }
+.bx-candle-prop b { position: absolute; top: 35px; left: 9px; width: 14px; height: 65px; border-radius: 3px 3px 5px 5px; background: linear-gradient(90deg, #65412c, #d1ae74 45%, #947048); box-shadow: 6px 10px 12px #0009; }
+.bx-candle-prop i { position: absolute; left: 10px; top: 6px; width: 12px; height: 27px; border-radius: 80% 20% 60% 40%; background: radial-gradient(ellipse at 50% 75%, #fff5cf 10%, #eec16c 42%, #c17730 75%); box-shadow: 0 0 18px #ffb75499, 0 0 65px 22px #eaaa3633; transform-origin: 50% 100%; animation: bx-flame 5s ease-in-out infinite; }
+.bx-candle-prop span { position: absolute; left: 0; bottom: 0; width: 32px; height: 9px; border-radius: 50%; background: #3a3021; border-top: 1px solid #a18150; }
+@keyframes bx-flame { 0%,100% { transform: rotate(-3deg) scaleY(.96); } 45% { transform: rotate(4deg) scaleY(1.05); } 72% { transform: rotate(-1deg); } }
+.rps-feature.bx-feature { position: relative; overflow: hidden; background: radial-gradient(ellipse at 95% 0, #a66a343b, transparent 55%), #191915; border-color: #282820; box-shadow: 6px 6px 0 #c3b492; }
+.bx-feature h3 { font-size: 24px; letter-spacing: .08em; }
+.bx-feature-title { font-family: "Bixian Brush", serif; font-size: 36px; font-weight: 400; }
+.bx-feature .bx-feature-seal { border: 1px solid #a45a43; color: #ce8b68; font-size: 16px; line-height: 1.2; padding: 6px; transform: rotate(5deg); }
+.bx-feature .auto-action { background: #d5bb87; color: #21190f; border-color: #b69a63; }
+@media (max-width: 880px) {
+  .bx-body { gap: 26px; }
+  .bx-paper-wrap { max-width: 320px; }
+  .bx-panel { min-width: 0; }
+  .bx-candle-prop { left: 2px; opacity: .7; transform: scale(.55); transform-origin: left top; }
+  .bx-card h2 { font-size: 34px; letter-spacing: .04em; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bx-scene *, .bx-scene *::before, .bx-scene *::after { animation: none !important; }
+  .bx-log summary::after { transition: none; }
 }
